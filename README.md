@@ -69,6 +69,10 @@ npm install -g https://github.com/Meowllo/MarkdownConfig/releases/download/v0.2.
 pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.2.0/markdownconfig-py.tar.gz
 
 # VS Code 扩展：Release 下载 markdownconfig-vscode.vsix → 扩展面板「从 VSIX 安装」
+
+# Agent Skill（给其他 Agent 用的 .mc 操作技能）：
+# 下载 markdownconfig-skill.tar.gz，解压到你的 Agent 技能目录（如豆包 workspace/.user_skills/）：
+#   mkdir -p <skills_dir>/markdownconfig && tar xzf markdownconfig-skill.tar.gz -C <skills_dir>/markdownconfig
 ```
 
 ### 1. 构建核心（TypeScript）
