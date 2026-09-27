@@ -1,0 +1,16 @@
+{
+  "MIXED": [
+    {
+      "empty": null,
+      "n": 1,
+      "name": "a",
+      "ok": true
+    },
+    {
+      "empty": "x",
+      "n": 2.5,
+      "name": "b",
+      "ok": false
+    }
+  ]
+}
