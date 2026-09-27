@@ -15,15 +15,16 @@ import {
 import { parse } from "./scanner";
 import type { McError, VarEntry } from "./types";
 
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 
 const HELP = `MarkdownConfig CLI v${VERSION}
 
 用法:
-  mc export <file> [--order=declared] [--allow-override]   导出配置为 JSON（canonical，字节稳定）
+  mc export <file> [--order=declared] [--allow-override] [--fingerprint]  导出配置为 JSON（canonical，字节稳定）
   mc get <file> <name>                                     读取单个变量/表格
   mc validate <file>                                       校验标记，错误带行号
   mc blocks <file>                                         列出块（id/type/行号）
+  mc tables <file> [--all]                                 列出已标记表 + 未标记表计数
   mc set <file> <name> <value> [--actor=...]               就地修改变量值（落 journal）
   mc add <file> <name> <value> [--type=TYPE] [--actor=...] 文件末尾新增变量（落 journal）
   mc comment <file> <target> <text> [--actor=...]          对块/变量添加评论（落 journal）
@@ -38,7 +39,8 @@ const HELP = `MarkdownConfig CLI v${VERSION}
   --actor=human|agent    记录操作者（默认 agent）
   --order=declared       导出按声明顺序（默认 canonical 排序）
   --allow-override       同名变量后者覆盖（默认报错）
-  --all                  评论包含已解决
+  --fingerprint          导出顶层带来源指纹 \$fingerprint（sha256/版本/时间），供过期门禁
+  --all                  评论包含已解决；tables 列出未标记表明细
   --tail=N               journal 只显示最近 N 条
 `;
 
@@ -93,7 +95,20 @@ function cmdExport(pos: string[], flags: Record<string, string | boolean>): void
     printErrors(errors);
     fail("配置组装失败");
   }
-  const out = flags.order === "declared" ? declaredOrderJson(config) : canonicalJson(config);
+  let outConfig: Record<string, unknown> = config;
+  if (flags.fingerprint) {
+    outConfig = {
+      $fingerprint: {
+        source: path.basename(abs),
+        sha256: hashOf(source),
+        mcVersion: VERSION,
+        generatedAt: new Date().toISOString(),
+      },
+      ...config,
+    };
+  }
+  const out =
+    flags.order === "declared" ? declaredOrderJson(outConfig) : canonicalJson(outConfig);
   process.stdout.write(out);
 }
 
@@ -142,6 +157,41 @@ function cmdBlocks(pos: string[], _flags: Record<string, string | boolean>): voi
   }
   out.sort((a, b) => (a.lines as number[])[0] - (b.lines as number[])[0]);
   process.stdout.write(JSON.stringify(out, null, 2) + "\n");
+}
+
+function cmdTables(pos: string[], flags: Record<string, string | boolean>): void {
+  const [file] = pos;
+  if (!file) fail("用法: mc tables <file>");
+  const { source } = load(file);
+  const res = parseOrExit(path.resolve(file), source);
+
+  const marked = res.entries.filter((e) => e.kind === "table");
+  const gfm = res.blocks.filter((b) => b.type === "table");
+  const covered = new Set<number>();
+  const rows: Array<{ name: string; count: number; start: number; end: number }> = [];
+  for (const t of marked) {
+    // 已标记表的表头行 = open 标记行 + 1
+    const bi = gfm.findIndex((b) => b.lines[0] === t.line + 1);
+    if (bi >= 0) covered.add(bi);
+    rows.push({
+      name: t.name,
+      count: t.kind === "table" ? t.rows.length : 0,
+      start: t.line,
+      end: bi >= 0 ? gfm[bi].lines[1] : t.line,
+    });
+  }
+  const unmarked = gfm.filter((_, i) => !covered.has(i));
+
+  const lines: string[] = rows.map(
+    (r) => `${r.name.padEnd(16)} ${String(r.count).padStart(3)} 行    L${r.start}-L${r.end}`,
+  );
+  if (unmarked.length > 0) {
+    lines.push(`（另有 ${unmarked.length} 张未标记的表 —— mc tables --all 列出）`);
+    if (flags.all) {
+      for (const b of unmarked) lines.push(`  未标记表 L${b.lines[0]}-L${b.lines[1]}`);
+    }
+  }
+  process.stdout.write(lines.join("\n") + "\n");
 }
 
 function actorOf(flags: Record<string, string | boolean>): string {
@@ -290,6 +340,9 @@ function main(): void {
       break;
     case "blocks":
       cmdBlocks(pos, flags);
+      break;
+    case "tables":
+      cmdTables(pos, flags);
       break;
     case "set":
       cmdSet(pos, flags);

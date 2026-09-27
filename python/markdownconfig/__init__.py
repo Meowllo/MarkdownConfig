@@ -21,7 +21,7 @@ class MCPyError(RuntimeError):
 # GitHub Release 托管的官方 CLI 包（npm tgz），找不到本地 mc 时经 npx 调用。
 # pin 固定版本以保证可复现（npx 按 URL 缓存；升级时同步改此版本号）。
 _REMOTE_CLI = (
-    "https://github.com/Meowllo/MarkdownConfig/releases/download/v0.2.0/markdownconfig.tgz"
+    "https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.0/markdownconfig.tgz"
 )
 
 
@@ -51,8 +51,13 @@ def _run(args: List[str], cli: Optional[str] = None) -> str:
 
 
 def load(path: str, canonical: bool = True, cli: Optional[str] = None) -> dict:
-    """读取 .mc 文件，返回配置对象（读取时才运行 mc export）。"""
-    args = ["export", str(path)] + (["--canonical"] if canonical else [])
+    """读取 .mc 文件，返回配置对象（读取时才运行 mc export）。
+
+    canonical=True（默认）输出键排序 JSON；False 时按声明顺序导出。
+    """
+    args = ["export", str(path)]
+    if not canonical:
+        args.append("--order=declared")
     return json.loads(_run(args, cli))
 
 

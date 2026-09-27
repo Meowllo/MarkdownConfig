@@ -8,6 +8,9 @@ __pycache__/
 # 构建/打包产物
 *.egg-info/
 .stage/
+.release-staging/
 packages/vscode/out/
 packages/markdownconfig/README.md
 *.tgz
+*.tar.gz
+*.vsix

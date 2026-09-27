@@ -36,23 +36,23 @@ description: 介绍并使用 MarkdownConfig（.mc）文件类型 ——Markdown 
 
 `mc` 是操作 .mc 的命令行。**不要自己手写解析器**。工具通过 GitHub Release 分发（需要 Node.js 18+；网络受限时为终端配置代理）。
 
-> **用固定版本 URL，不要用 latest**：npx 按 URL 缓存，latest 更新后本地不会自动刷新；固定版本还保证读取可复现、可追溯。下例以 `v0.2.0` 为准，升级时把版本号整体替换。
+> **用固定版本 URL，不要用 latest**：npx 按 URL 缓存，latest 更新后本地不会自动刷新；固定版本还保证读取可复现、可追溯。下例以 `v0.3.0` 为准，升级时把版本号整体替换。
 
 * **首选，零安装**：用 npx 直接运行官方 tgz（首次自动下载、之后走缓存）：
 
 ```
-npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.2.0/markdownconfig.tgz export app.mc
+npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.0/markdownconfig.tgz export app.mc
 ```
 
-后续命令同理，把 `mc ...` 换成 `npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.2.0/markdownconfig.tgz ...`。
+后续命令同理，把 `mc ...` 换成 `npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.0/markdownconfig.tgz ...`。
 
-* **或全局安装**：`npm install -g https://github.com/Meowllo/MarkdownConfig/releases/download/v0.2.0/markdownconfig.tgz`，之后直接用 `mc`。
+* **或全局安装**：`npm install -g https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.0/markdownconfig.tgz`，之后直接用 `mc`。
 
-* **Python 程序直接读配置**：`pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.2.0/markdownconfig-py.tar.gz`（库在读取时经 npx 自动调用同一版本 CLI，无需单独安装，见下文）。
+* **Python 程序直接读配置**：`pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.0/markdownconfig-py.tar.gz`（库在读取时经 npx 自动调用同一版本 CLI，无需单独安装，见下文）。
 
 * **VS Code 编辑器**：从 Release 下载 `markdownconfig-vscode.vsix`，扩展面板 → Install from VSIX。
 
-* 确实要始终跟最新：把 `download/v0.2.0` 换成 `latest/download`，但需加 `--prefer-online`，或升级后 `npm cache clean --force`。
+* 确实要始终跟最新：把 `download/v0.3.0` 换成 `latest/download`，但需加 `--prefer-online`，或升级后 `npm cache clean --force`。
 
 * 以上都不可用时（无 Node / 无网络）：.mc 仍是纯文本，可按 [references/syntax.md](references/syntax.md) 的标记规则人工 / 自行解析，但应优先获取官方工具以保证 canonical 输出一致。
 
@@ -88,6 +88,8 @@ mc export app.mc            # 导出 canonical JSON（键排序、2 空格缩进
 mc get app.mc server.port   # 取单个变量
 
 mc blocks app.mc            # 列出块：行区间、id、类型
+
+mc tables app.mc            # 列出已标记表 + 未标记表计数（--all 列明细）
 
 mc journal app.mc           # 查看审计日志
 ```
@@ -126,9 +128,9 @@ mc add app.mc feature.newFlag true  # 新增变量
 
 * 通用方式：`mc export app.mc` 得到标准 JSON，任何语言都能读 JSON；或脚本里 shell 调用。
 
-* Node：`npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.2.0/markdownconfig.tgz export` 后 `JSON.parse`。
+* Node：`npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.0/markdownconfig.tgz export` 后 `JSON.parse`。
 
-* Python：`pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.2.0/markdownconfig-py.tar.gz`，然后 `from markdownconfig import load_config; cfg = load_config("app.mc")`（也可用 `get/comments/journal/validate`；库在读取时经 npx 自动调用同一版本 CLI，无需单独安装，也可用环境变量 `MC_CLI` 指定本地 CLI）。
+* Python：`pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.0/markdownconfig-py.tar.gz`，然后 `from markdownconfig import load_config; cfg = load_config("app.mc")`（也可用 `get/comments/journal/validate`；库在读取时经 npx 自动调用同一版本 CLI，无需单独安装，也可用环境变量 `MC_CLI` 指定本地 CLI）。
 
 * 设计目标是像 JSON 一样跨语言通用：**canonical JSON 是第一公民**，各语言只做薄封装。
 
@@ -162,15 +164,19 @@ mc add app.mc feature.newFlag true  # 新增变量
 \<!--@/table-->
 
 数组：标签 \<!--@array TAGS-->a/b/c\<!--@/array-->（`/` 分隔，逐元素推断；可加 type= 强制；空值=[]）
+
+区间：\<!--@range AttackRange-->1~5\<!--@/range-->（读出 {min,max}；支持全角 ～；必须单行）
 ```
 
 
 
 * 类型（可选）：`string | number | int | boolean | json | text`，缺省自动推断；**值含换行必须声明&#x20;**`type=json`**&#x20;或&#x20;**`type=text`。
 
-* 表格单元格可内联 `@var/@array`：整单元格即标记时读出为 `{ 变量名: 值 }`（见 [references/syntax.md](references/syntax.md)）。
+* 表格单元格可内联 `@var/@array/@range`，三态：整格**一个**标记 → 裸值；整格**多个**标记 → 对象 `{ 名: 值 }`；标记关闭后还跟文本（"尾巴"）→ 尾巴是**人读注释**，不进配置、保留在源文件（见 [references/syntax.md](references/syntax.md)）。
 
 * 不带 `@` 的 `<!-- ... -->` 普通注释忽略；围栏代码块（` ` \`\`\`）内的标记忽略。
+
+* 来源指纹：`mc export app.mc --fingerprint` 在顶层加 `$fingerprint`（source / sha256 / mcVersion / generatedAt）；下游忽略 `$` 前缀键，可用 sha256 做来源过期门禁。
 
 完整语法、类型规则与错误表见 [references/syntax.md](references/syntax.md)；完整命令与参数见 [references/cli.md](references/cli.md)。
 

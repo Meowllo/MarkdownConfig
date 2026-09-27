@@ -9,14 +9,14 @@ export interface HighlightRange {
 }
 
 const MARKER_RE =
-  /<!--@(?:var\s+[A-Za-z_][\w.-]*(?:\s+type=[A-Za-z]+)?|array\s+[A-Za-z_][\w.-]*(?:\s+type=[A-Za-z]+)?|table\s+[A-Za-z_][\w.-]*|\/var|\/array|\/table)-->/g;
+  /<!--@(?:var\s+[A-Za-z_][\w.-]*(?:\s+type=[A-Za-z]+)?|array\s+[A-Za-z_][\w.-]*(?:\s+type=[A-Za-z]+)?|range\s+[A-Za-z_][\w.-]*|table\s+[A-Za-z_][\w.-]*|\/var|\/array|\/range|\/table)-->/g;
 
-/** 计算高亮区间：@var/@array 值 → value（蓝），标记本身 → marker（灰） */
+/** 计算高亮区间：@var/@array/@range 值 → value（蓝），标记本身 → marker（灰） */
 export function computeHighlights(source: string): HighlightRange[] {
   const ranges: HighlightRange[] = [];
   const res = parse(source);
   for (const e of res.entries) {
-    if (e.kind === "var" || e.kind === "array") {
+    if (e.kind === "var" || e.kind === "array" || e.kind === "range") {
       ranges.push({ start: e.valueStart, end: e.valueEnd, kind: "value" });
     }
   }
@@ -41,7 +41,7 @@ export function hoverAt(source: string, offset: number): HoverInfo | null {
   const res = parse(source);
   for (const e of res.entries) {
     if (
-      (e.kind === "var" || e.kind === "array") &&
+      (e.kind === "var" || e.kind === "array" || e.kind === "range") &&
       offset >= e.valueStart &&
       offset <= e.valueEnd
     ) {
@@ -55,16 +55,17 @@ export function hoverAt(source: string, offset: number): HoverInfo | null {
       }
     }
   }
-  const varOpen = /<!--@(var|array)\s+([A-Za-z_][\w.-]*)(?:\s+type=[A-Za-z]+)?\s*-->/g;
+  const varOpen = /<!--@(var|array|range)\s+([A-Za-z_][\w.-]*)(?:\s+type=[A-Za-z]+)?\s*-->/g;
   let m: RegExpExecArray | null;
   varOpen.lastIndex = 0;
   while ((m = varOpen.exec(source)) !== null) {
     if (offset >= m.index && offset <= m.index + m[0].length) {
       const name = m[2];
       const entry = res.entries.find(
-        (x) => (x.kind === "var" || x.kind === "array") && x.name === name,
+        (x) =>
+          (x.kind === "var" || x.kind === "array" || x.kind === "range") && x.name === name,
       );
-      if (entry && (entry.kind === "var" || entry.kind === "array")) {
+      if (entry && (entry.kind === "var" || entry.kind === "array" || entry.kind === "range")) {
         return { name: entry.name, type: entry.type, value: JSON.stringify(entry.value), line: entry.line };
       }
     }
@@ -156,7 +157,7 @@ export function findTargetForSelection(
 
   for (const e of res.entries) {
     if (
-      (e.kind === "var" || e.kind === "array") &&
+      (e.kind === "var" || e.kind === "array" || e.kind === "range") &&
       overlaps(e.valueStart, e.valueEnd, start, end)
     ) {
       return { target: e.name, autoAssign: false };
@@ -168,7 +169,7 @@ export function findTargetForSelection(
     res.blocks.find((b) => selLineStart >= b.lines[0] && selLineStart <= b.lines[1]);
   if (block) {
     const tableEntry = res.entries.find(
-      (e) => e.kind === "table" && e.line >= block.lines[0] && e.line <= block.lines[1],
+      (e) => e.kind === "table" && e.line >= block.lines[0] - 1 && e.line <= block.lines[1],
     );
     if (tableEntry) {
       if (tableEntry.kind === "table" && tableEntry.name) {

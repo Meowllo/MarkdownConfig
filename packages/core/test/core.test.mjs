@@ -141,3 +141,41 @@ test("表格内联标记：未闭合/错配 → fail loud", () => {
   const r2 = parse(wrongClose);
   assert.ok(r2.errors.length > 0, "开闭 kind 错配应报错");
 });
+
+test("@range：1~5 / 全角～ / bold / 非法与换行 fail loud", () => {
+  const ok = parse("攻击：<!--@range R-->1~5<!--@/range-->\n");
+  assert.equal(ok.errors.length, 0);
+  assert.deepEqual(buildConfig(ok).config.R, { min: 1, max: 5 });
+
+  const wide = parse("<!--@range W-->**1～10**<!--@/range-->\n");
+  assert.deepEqual(buildConfig(wide).config.W, { min: 1, max: 10 });
+
+  const bad = parse("<!--@range B-->1?5<!--@/range-->\n");
+  assert.ok(bad.errors.some((e) => /invalid range/.test(e.message)));
+
+  const multiline = parse("<!--@range B-->1~\n5<!--@/range-->\n");
+  assert.ok(multiline.errors.length > 0, "range 必须单行");
+});
+
+test("#2 非 ASCII 表名直接报错，且关闭标记不再误报缺少开始", () => {
+  const src = "<!--@table T_护甲-->\n| a |\n| --- |\n| 1 |\n<!--@/table-->\n";
+  const res = parse(src);
+  assert.ok(res.errors.some((e) => /表名.*非法/.test(e.message)));
+  assert.equal(res.errors.filter((e) => /缺少对应的开始/.test(e.message)).length, 0);
+});
+
+test("单元格三态：单标记裸值 / 尾巴注释不进值 / 多标记对象", () => {
+  const src = [
+    "<!--@table T-->",
+    "| id | v |",
+    "| --- | --- |",
+    "| a | <!--@var A-->2<!--@/var--> 人读注释 |",
+    "| c | <!--@var X-->1<!--@/var--> <!--@var Y-->2<!--@/var--> |",
+    "<!--@/table-->",
+  ].join("\n");
+  const res = parse(src);
+  assert.equal(res.errors.length, 0);
+  const t = res.entries.find((e) => e.name === "T");
+  assert.equal(t.kind === "table" && t.rows[0].v, 2);
+  assert.deepEqual(t.kind === "table" && t.rows[1].v, { X: 1, Y: 2 });
+});

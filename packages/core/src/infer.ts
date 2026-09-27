@@ -62,3 +62,21 @@ export function parseArrayValue(
   const items = text.split("/").map((part) => inferValue(part.trim(), declared).value);
   return { value: items, type: "array" };
 }
+
+/**
+ * 解析 @range 值：形如 `1~5`（支持全角 ～、允许 **bold** 包裹），
+ * 读出为 { min: 1, max: 5 }。两端必须都是数字，否则 fail loud。
+ */
+export function parseRangeValue(raw: string): {
+  value: { min: number; max: number };
+  type: "range";
+} {
+  const text = raw.trim().replace(/\*\*/g, "").trim();
+  const parts = text.split(/[~～]/).map((p) => p.trim());
+  if (parts.length !== 2 || parts.some((p) => p === "")) {
+    throw new Error(`invalid range: "${raw.trim()}"，需形如 1~5`);
+  }
+  const min = inferValue(parts[0], "number").value as number;
+  const max = inferValue(parts[1], "number").value as number;
+  return { value: { min, max }, type: "range" };
+}

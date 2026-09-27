@@ -51,3 +51,10 @@ test("preprocessForRender：多行值（type=text）不破坏", () => {
   assert.ok(out.includes('<span class="mc-value" title="B">a'));
   assert.ok(out.includes("b</span>"));
 });
+
+test("preprocessForRender：@range 标记 → 蓝色 span + 变量名", () => {
+  const out = preprocessForRender("攻击：<!--@range AttackRange-->1~5<!--@/range-->\n");
+  assert.ok(out.includes('<span class="mc-value" title="AttackRange">1~5</span>'));
+  assert.ok(!out.includes("<!--@range"));
+  assert.ok(!out.includes("<!--@/range-->"));
+});

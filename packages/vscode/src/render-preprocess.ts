@@ -11,8 +11,8 @@
 import { parse } from "@markdownconfig/core/dist/scanner.js";
 
 const FENCE_RE = /^\s*(```|~~~)/;
-const VALUE_OPEN_RE = /<!--@(var|array)\s+([A-Za-z_][\w.-]*)(?:\s+type=[A-Za-z]+)?\s*-->/;
-const VALUE_CLOSE_RE = /<!--@\/(var|array)-->/;
+const VALUE_OPEN_RE = /<!--@(var|array|range)\s+([A-Za-z_][\w.-]*)(?:\s+type=[A-Za-z]+)?\s*-->/;
+const VALUE_CLOSE_RE = /<!--@\/(var|array|range)-->/;
 const TABLE_OPEN_RE = /<!--@table\s+([A-Za-z_][\w.-]*)-->/;
 const TABLE_CLOSE_RE = /<!--@\/table-->/;
 

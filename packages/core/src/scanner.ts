@@ -1,6 +1,6 @@
 /** 扫描器：从 .mc 文本中提取配置条目（@var / @array / @table）、块结构与错误 */
 
-import { inferValue, parseArrayValue } from "./infer";
+import { inferValue, parseArrayValue, parseRangeValue } from "./infer";
 import { parseTable } from "./table";
 import type {
   ArrayEntry,
@@ -8,13 +8,16 @@ import type {
   ConfigEntry,
   McError,
   ParseResult,
+  RangeEntry,
   VarEntry,
 } from "./types";
 
-// 统一匹配 @var / @array 的开始与结束（结束捕获 kind，用于校验开闭配对）
+// 统一匹配 @var / @array / @range 的开始与结束（结束捕获 kind，用于校验开闭配对）
 const BLOCK_RE =
-  /<!--@(var|array)\s+([A-Za-z_][\w.-]*)(?:\s+type=([A-Za-z]+))?\s*-->|<!--@\/(var|array)-->/g;
+  /<!--@(var|array|range)\s+([A-Za-z_][\w.-]*)(?:\s+type=([A-Za-z]+))?\s*-->|<!--@\/(var|array|range)-->/g;
 const TABLE_OPEN_RE = /^\s*<!--@table\s+([A-Za-z_][\w.-]*)\s*-->\s*$/;
+// 宽松识别 table 开始（名字可能非法），用于把"表名非法"直接指到病根（#2）
+const TABLE_OPEN_LOOSE_RE = /^\s*<!--@table\s+(.+?)\s*-->\s*$/;
 const TABLE_CLOSE_RE = /^\s*<!--@\/table-->\s*$/;
 const HEADING_RE = /^(#{1,6})\s+(.*?)(?:\s+\^([A-Za-z0-9_-]+))?\s*$/;
 const BLOCK_ID_RE = /^\^([A-Za-z0-9_-]+)\s*$/;
@@ -77,7 +80,7 @@ export function parse(source: string): ParseResult {
 
   // ---- Pass 1：定位 @table 区域（独占一行的开闭标记），暂不解析 ----
   const regions: TableRegion[] = [];
-  const tableStack: Array<{ name: string; openLine: number }> = [];
+  const tableStack: Array<{ name: string; openLine: number; invalid?: boolean }> = [];
   for (let i = 0; i < lines.length; i++) {
     if (inFence(i, fences)) continue;
     const mOpen = lines[i].match(TABLE_OPEN_RE);
@@ -91,17 +94,27 @@ export function parse(source: string): ParseResult {
       tableStack.push({ name: mOpen[1], openLine: i });
       continue;
     }
+    // 非法表名（如非 ASCII）：直接指到病根，占位以正确消费关闭标记（#2）
+    const mLoose = lines[i].match(TABLE_OPEN_LOOSE_RE);
+    if (mLoose) {
+      errors.push({
+        line: i + 1,
+        message: `@table 表名 '${mLoose[1].trim()}' 非法：NAME 必须匹配 [A-Za-z_][A-Za-z0-9_.]*`,
+      });
+      tableStack.push({ name: mLoose[1].trim(), openLine: i, invalid: true });
+      continue;
+    }
     if (TABLE_CLOSE_RE.test(lines[i])) {
       const top = tableStack.pop();
       if (!top) {
         errors.push({ line: i + 1, message: "@table 关闭标记缺少对应的开始标记" });
         continue;
       }
-      regions.push({ name: top.name, openLine: top.openLine, closeLine: i });
+      if (!top.invalid) regions.push({ name: top.name, openLine: top.openLine, closeLine: i });
     }
   }
   for (const t of tableStack) {
-    errors.push({ line: t.openLine + 1, message: `表格 ${t.name} 未闭合` });
+    if (!t.invalid) errors.push({ line: t.openLine + 1, message: `表格 ${t.name} 未闭合` });
   }
 
   const inTableRegion = (line: number): boolean => {
@@ -112,7 +125,7 @@ export function parse(source: string): ParseResult {
   // ---- Pass 2：扫描顶层 @var / @array（跳过围栏与表格区域，表格内联标记归表格）----
   const blockSpans: Array<[number, number]> = [];
   const stack: Array<{
-    kind: "var" | "array";
+    kind: "var" | "array" | "range";
     name: string;
     declaredType?: string;
     markerEnd: number;
@@ -127,7 +140,7 @@ export function parse(source: string): ParseResult {
 
     if (m[1] !== undefined) {
       // open
-      const kind = m[1] as "var" | "array";
+      const kind = m[1] as "var" | "array" | "range";
       if (stack.length > 0) {
         errors.push({
           line,
@@ -143,7 +156,7 @@ export function parse(source: string): ParseResult {
       });
     } else {
       // close
-      const closeKind = m[4] as "var" | "array";
+      const closeKind = m[4] as "var" | "array" | "range";
       const top = stack.pop();
       if (!top) {
         errors.push({ line, message: `@${closeKind} 关闭标记缺少对应的开始标记` });
@@ -183,7 +196,7 @@ export function parse(source: string): ParseResult {
             valueEnd: m.index,
           };
           entries.push(entry);
-        } else {
+        } else if (top.kind === "array") {
           // array：换行仅作空白（元素按 / 分隔）
           const { value } = parseArrayValue(valueRaw, top.declaredType);
           const entry: ArrayEntry = {
@@ -191,6 +204,25 @@ export function parse(source: string): ParseResult {
             name: top.name,
             declaredType: top.declaredType,
             type: "array",
+            value,
+            valueRaw: valueRaw.trim(),
+            line: top.line,
+            valueStart: top.markerEnd,
+            valueEnd: m.index,
+          };
+          entries.push(entry);
+        } else {
+          // range：必须单行，形如 1~5
+          if (valueRaw.includes("\n")) {
+            errors.push({ line: top.line, message: `@range ${top.name} 必须写在一行（形如 1~5）` });
+            continue;
+          }
+          const { value } = parseRangeValue(valueRaw);
+          const entry: RangeEntry = {
+            kind: "range",
+            name: top.name,
+            declaredType: undefined,
+            type: "range",
             value,
             valueRaw: valueRaw.trim(),
             line: top.line,
@@ -231,7 +263,15 @@ export function parse(source: string): ParseResult {
     entries.push({ kind: "table", name: r.name, rows: parsed.rows, line: r.openLine + 1 });
   }
 
-  return { entries, blocks, errors };
+  // 错误按 行+消息 去重（#6：同一错误曾被打印两遍）
+  const seen = new Set<string>();
+  const dedupErrors = errors.filter((e) => {
+    const k = `${e.line}:${e.message}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  return { entries, blocks, errors: dedupErrors };
 }
 
 /** 轻量块扫描：标题 / 段落 / 表格，行尾 ^id 或独立 ^id 行（fence 感知） */
@@ -242,6 +282,11 @@ function scanBlocks(source: string, fences: Array<[number, number]>): Block[] {
   while (i < lines.length) {
     const line = lines[i];
     if (line.trim() === "" || inFence(i, fences)) {
+      i++;
+      continue;
+    }
+    // @table 开闭标记独占行：跳过，使其后的 GFM 表能被识别为 table 块
+    if (/^\s*<!--@table\b/.test(line) || /^\s*<!--@\/table-->/.test(line)) {
       i++;
       continue;
     }

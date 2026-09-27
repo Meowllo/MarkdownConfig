@@ -7,7 +7,8 @@ export type VarResolvedType =
   | "boolean"
   | "json"
   | "text"
-  | "array";
+  | "array"
+  | "range";
 
 export interface McError {
   line: number;
@@ -57,7 +58,25 @@ export interface TableEntry {
   line: number;
 }
 
-export type ConfigEntry = VarEntry | ArrayEntry | TableEntry;
+export interface RangeEntry {
+  kind: "range";
+  name: string;
+  declaredType?: string;
+  /** 解析后的类型，固定 range */
+  type: "range";
+  /** 区间值 { min, max } */
+  value: { min: number; max: number };
+  /** 值原文（trim 后，如 "1~5"） */
+  valueRaw: string;
+  /** 开始标记所在行（1-based） */
+  line: number;
+  /** 值文本的字符起点（不含） */
+  valueStart: number;
+  /** 值文本的字符终点（不含） */
+  valueEnd: number;
+}
+
+export type ConfigEntry = VarEntry | ArrayEntry | RangeEntry | TableEntry;
 
 export interface Block {
   id?: string;

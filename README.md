@@ -56,17 +56,17 @@ MarkdownConfig/
 
 ### 0. 直接安装（无需克隆，通过 GitHub Release）
 
-> 用固定版本 URL（不要用 latest）：npx 按 URL 缓存，latest 更新后不会自动刷新；固定版本也保证可复现。下例为 v0.2.0。
+> 用固定版本 URL（不要用 latest）：npx 按 URL 缓存，latest 更新后不会自动刷新；固定版本也保证可复现。下例为 v0.3.0。
 
 ```
 # CLI 免安装运行（需要 Node.js 18+）
-npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.2.0/markdownconfig.tgz export app.mc
+npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.0/markdownconfig.tgz export app.mc
 
 # CLI 全局安装
-npm install -g https://github.com/Meowllo/MarkdownConfig/releases/download/v0.2.0/markdownconfig.tgz
+npm install -g https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.0/markdownconfig.tgz
 
 # Python 库（读取时经 npx 自动调用同一版本 CLI，无需单独安装）
-pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.2.0/markdownconfig-py.tar.gz
+pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.0/markdownconfig-py.tar.gz
 
 # VS Code 扩展：Release 下载 markdownconfig-vscode.vsix → 扩展面板「从 VSIX 安装」
 
@@ -186,7 +186,7 @@ cd packages/vscode && npm run build
 # 打包：npx vsce package --no-dependencies（staging 目录，见扩展 README）
 ```
 
-VS Code 扩展面板 → `...` → 「从 VSIX 安装…」→ 选择 `dist/markdownconfig-vscode-0.2.2.vsix`。
+VS Code 扩展面板 → `...` → 「从 VSIX 安装…」→ 选择下载的 `markdownconfig-vscode.vsix`。
 
 安装方式二（开发调试）：在 `packages/vscode` 下按 `F5`。
 
