@@ -10,13 +10,13 @@ description: 介绍并使用 MarkdownConfig（.mc）文件类型 ——Markdown 
 
 # MarkdownConfig：给人读、也给程序读的 Markdown
 
-## 这是什么
+## MarkdownConfig 文件是什么
 
 `.mc`（MarkdownConfig）是 **Markdown 的严格超集**：正文就是普通 Markdown，人照常写、照常读；额外用少量 HTML 注释标记，把文档里的值或表格 "声明" 成配置项，Agent 和程序可以直接按结构读取。
 
 一句话：**.md 是 "给人读的文档"；.mc 是 "给人读、给 Agent 协作、也给程序当配置源的文档"。**
 
-## 相比 .md 多解决了什么
+## MarkdownConfig 相比 Markdown 多解决了什么
 
 
 
@@ -32,7 +32,7 @@ description: 介绍并使用 MarkdownConfig（.mc）文件类型 ——Markdown 
 
 6. **块级跳转**：`^id` 锚点支持文档内 / 文档间定位。
 
-## 获取工具（本地没有 mc 时）
+## 获取 mc 命令行工具（本地未安装时）
 
 `mc` 是操作 .mc 的命令行。**不要自己手写解析器**。工具通过 GitHub Release 分发（需要 Node.js 18+；网络受限时为终端配置代理）。
 
@@ -56,11 +56,23 @@ npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.2.0/markdo
 
 * 以上都不可用时（无 Node / 无网络）：.mc 仍是纯文本，可按 [references/syntax.md](references/syntax.md) 的标记规则人工 / 自行解析，但应优先获取官方工具以保证 canonical 输出一致。
 
-## 创建 .mc
+## 创建 .mc 文件
 
+### 新建文档规范（先设计，再动笔）
 
+**config 不是必选项**：即使整篇文档没有任何 config 标记，也必须能被 Agent 快速局部浏览与编辑。分块索引的效率 = 检索文档任意内容平均花费的 token 数，取决于内容结构；理想结构是任意层级的每个 block 内容量一致、每个 block 的子 block 数量一致——实践中难以完美，按以下原则设计可尽量逼近：
 
-* 从零开始：`mc init app.mc` 生成骨架；或直接新建 `.mc` 文件写 Markdown，在需要的位置加标记。
+1. **文档标题 + 摘要（定义内容边界）**：标题简短、精准概括全文；**摘要必写**，用最少 token 向 Agent 说明两点——什么情况下应**阅读**此文档、什么情况下应**编辑**此文档。
+
+2. **目录 = 分块索引骨架（MECE）**：每个内容只存在于某个标题（block）之下；块与块内容边界清晰、尽量解耦。
+
+3. **Block（标题）精准命名**：标题精准定义该块内容边界，让人和 Agent 仅凭标题即可判断——想查询的内容是否在此块下、是否需要改动此块内容。
+   - 坏例：「这是什么」（"这"指文档、技能还是文件类型？）、「相比 .md 多解决了什么」（谁和谁比？）、「获取工具」（获取什么工具？）
+   - 好例：「MarkdownConfig 文件相比 Markdown 文件多解决了什么」
+
+### 从零创建
+
+* `mc init app.mc` 生成骨架；或直接新建 `.mc` 文件写 Markdown，在需要的位置加标记。
 
 * 标记渲染时自动隐藏，**值即所见文本**，不影响人读。
 
