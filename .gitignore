@@ -10,3 +10,4 @@ __pycache__/
 .stage/
 packages/vscode/out/
 packages/markdownconfig/README.md
+*.tgz
