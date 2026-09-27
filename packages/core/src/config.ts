@@ -49,6 +49,7 @@ export function buildConfig(
 
   for (const e of ordered) {
     if (e.kind === "var") setPath(e.name, e.value, e.line);
+    else if (e.kind === "array") setPath(e.name, e.value, e.line);
     else setPath(e.name, e.rows, e.line);
   }
   return { config: root, errors };

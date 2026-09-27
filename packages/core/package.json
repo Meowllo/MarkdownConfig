@@ -1,6 +1,6 @@
 {
   "name": "@markdownconfig/core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MarkdownConfig 核心：解析 .mc、导出 JSON、journal 审计",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

@@ -15,7 +15,7 @@ import {
 import { parse } from "./scanner";
 import type { McError, VarEntry } from "./types";
 
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 
 const HELP = `MarkdownConfig CLI v${VERSION}
 
@@ -104,7 +104,8 @@ function cmdGet(pos: string[], _flags: Record<string, string | boolean>): void {
   const res = parseOrExit(abs, source);
   const entry = res.entries.find((e) => e.name === name);
   if (!entry) fail(`未找到变量: ${name}`);
-  process.stdout.write(JSON.stringify(entry.kind === "var" ? entry.value : entry.rows) + "\n");
+  const val = entry.kind === "table" ? entry.rows : entry.value;
+  process.stdout.write(JSON.stringify(val) + "\n");
 }
 
 function cmdValidate(pos: string[], _flags: Record<string, string | boolean>): void {
@@ -134,7 +135,7 @@ function cmdBlocks(pos: string[], _flags: Record<string, string | boolean>): voi
   for (const e of res.entries) {
     out.push({
       id: e.name,
-      type: e.kind === "var" ? "config" : "config-table",
+      type: e.kind === "table" ? "config-table" : "config",
       title: null,
       lines: [e.line, e.line],
     });

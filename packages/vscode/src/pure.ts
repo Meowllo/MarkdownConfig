@@ -9,14 +9,14 @@ export interface HighlightRange {
 }
 
 const MARKER_RE =
-  /<!--@(?:var\s+[A-Za-z_][\w.-]*(?:\s+type=[A-Za-z]+)?|table\s+[A-Za-z_][\w.-]*|\/var|\/table)-->/g;
+  /<!--@(?:var\s+[A-Za-z_][\w.-]*(?:\s+type=[A-Za-z]+)?|array\s+[A-Za-z_][\w.-]*(?:\s+type=[A-Za-z]+)?|table\s+[A-Za-z_][\w.-]*|\/var|\/array|\/table)-->/g;
 
-/** 计算高亮区间：@var 值 → value（蓝），标记本身 → marker（灰） */
+/** 计算高亮区间：@var/@array 值 → value（蓝），标记本身 → marker（灰） */
 export function computeHighlights(source: string): HighlightRange[] {
   const ranges: HighlightRange[] = [];
   const res = parse(source);
   for (const e of res.entries) {
-    if (e.kind === "var") {
+    if (e.kind === "var" || e.kind === "array") {
       ranges.push({ start: e.valueStart, end: e.valueEnd, kind: "value" });
     }
   }
@@ -40,7 +40,11 @@ export interface HoverInfo {
 export function hoverAt(source: string, offset: number): HoverInfo | null {
   const res = parse(source);
   for (const e of res.entries) {
-    if (e.kind === "var" && offset >= e.valueStart && offset <= e.valueEnd) {
+    if (
+      (e.kind === "var" || e.kind === "array") &&
+      offset >= e.valueStart &&
+      offset <= e.valueEnd
+    ) {
       return { name: e.name, type: e.type, value: JSON.stringify(e.value), line: e.line };
     }
     if (e.kind === "table") {
@@ -51,14 +55,16 @@ export function hoverAt(source: string, offset: number): HoverInfo | null {
       }
     }
   }
-  const varOpen = /<!--@var\s+([A-Za-z_][\w.-]*)(?:\s+type=[A-Za-z]+)?-->/g;
+  const varOpen = /<!--@(var|array)\s+([A-Za-z_][\w.-]*)(?:\s+type=[A-Za-z]+)?\s*-->/g;
   let m: RegExpExecArray | null;
   varOpen.lastIndex = 0;
   while ((m = varOpen.exec(source)) !== null) {
     if (offset >= m.index && offset <= m.index + m[0].length) {
-      const name = m[1];
-      const entry = res.entries.find((x) => x.kind === "var" && x.name === name);
-      if (entry && entry.kind === "var") {
+      const name = m[2];
+      const entry = res.entries.find(
+        (x) => (x.kind === "var" || x.kind === "array") && x.name === name,
+      );
+      if (entry && (entry.kind === "var" || entry.kind === "array")) {
         return { name: entry.name, type: entry.type, value: JSON.stringify(entry.value), line: entry.line };
       }
     }
@@ -149,7 +155,10 @@ export function findTargetForSelection(
   const selLineEnd = lineAt(source, end);
 
   for (const e of res.entries) {
-    if (e.kind === "var" && overlaps(e.valueStart, e.valueEnd, start, end)) {
+    if (
+      (e.kind === "var" || e.kind === "array") &&
+      overlaps(e.valueStart, e.valueEnd, start, end)
+    ) {
       return { target: e.name, autoAssign: false };
     }
   }

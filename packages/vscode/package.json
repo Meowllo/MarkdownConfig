@@ -2,7 +2,7 @@
   "name": "markdownconfig-vscode",
   "displayName": "MarkdownConfig",
   "description": ".mc 文件预览与编辑：config 值蓝色高亮、hover 显示变量名、锚定评论、人工编辑留痕",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "publisher": "markdownconfig",
   "engines": {
     "vscode": "^1.85.0"

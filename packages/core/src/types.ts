@@ -1,6 +1,13 @@
 /** MarkdownConfig 核心类型定义 */
 
-export type VarResolvedType = "string" | "number" | "boolean" | "json" | "text";
+export type VarResolvedType =
+  | "string"
+  | "number"
+  | "int"
+  | "boolean"
+  | "json"
+  | "text"
+  | "array";
 
 export interface McError {
   line: number;
@@ -25,6 +32,24 @@ export interface VarEntry {
   valueEnd: number;
 }
 
+export interface ArrayEntry {
+  kind: "array";
+  name: string;
+  declaredType?: string;
+  /** 解析后的类型，固定 array（元素类型各自推断，见 value） */
+  type: "array";
+  /** 类型化数组 */
+  value: unknown[];
+  /** 值原文（trim 后，如 "1/2/3/4"） */
+  valueRaw: string;
+  /** 开始标记所在行（1-based） */
+  line: number;
+  /** 值文本的字符起点（不含） */
+  valueStart: number;
+  /** 值文本的字符终点（不含） */
+  valueEnd: number;
+}
+
 export interface TableEntry {
   kind: "table";
   name: string;
@@ -32,7 +57,7 @@ export interface TableEntry {
   line: number;
 }
 
-export type ConfigEntry = VarEntry | TableEntry;
+export type ConfigEntry = VarEntry | ArrayEntry | TableEntry;
 
 export interface Block {
   id?: string;

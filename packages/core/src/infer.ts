@@ -48,3 +48,17 @@ export function inferValue(raw: string, declared?: string): { value: unknown; ty
   }
   return { value: text, type: "string" };
 }
+
+/**
+ * 解析 @array 值：以 `/` 分隔元素，逐元素 trim 后按声明类型或自动推断。
+ * 空文本 → 空数组。元素本身含 `/` 时需用 type=json 并写 JSON 数组（见 SPEC）。
+ */
+export function parseArrayValue(
+  raw: string,
+  declared?: string,
+): { value: unknown[]; type: "array" } {
+  const text = raw.trim();
+  if (text === "") return { value: [], type: "array" };
+  const items = text.split("/").map((part) => inferValue(part.trim(), declared).value);
+  return { value: items, type: "array" };
+}

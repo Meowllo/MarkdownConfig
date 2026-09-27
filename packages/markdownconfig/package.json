@@ -1,6 +1,6 @@
 {
   "name": "markdownconfig",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MarkdownConfig (.mc)：Markdown 超集，文档同时供人类阅读、Agent 结构化查阅与编辑、程序作为配置源。包含 mc CLI。",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

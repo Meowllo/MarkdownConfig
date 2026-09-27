@@ -11,8 +11,8 @@
 import { parse } from "@markdownconfig/core/dist/scanner.js";
 
 const FENCE_RE = /^\s*(```|~~~)/;
-const VAR_OPEN_RE = /<!--@var\s+([A-Za-z_][\w.-]*)(?:\s+type=[A-Za-z]+)?-->/;
-const VAR_CLOSE_RE = /<!--@\/var-->/;
+const VALUE_OPEN_RE = /<!--@(var|array)\s+([A-Za-z_][\w.-]*)(?:\s+type=[A-Za-z]+)?\s*-->/;
+const VALUE_CLOSE_RE = /<!--@\/(var|array)-->/;
 const TABLE_OPEN_RE = /<!--@table\s+([A-Za-z_][\w.-]*)-->/;
 const TABLE_CLOSE_RE = /<!--@\/table-->/;
 
@@ -47,8 +47,8 @@ export function preprocessForRender(source: string): string {
       t = t.replace(/\s+\^[A-Za-z_][\w.-]*\s*$/, "");
     }
     // config 标记 → 高亮 span / 表格标签
-    t = t.replace(VAR_OPEN_RE, '<span class="mc-value" title="$1">');
-    t = t.replace(VAR_CLOSE_RE, "</span>");
+    t = t.replace(VALUE_OPEN_RE, '<span class="mc-value" title="$2">');
+    t = t.replace(VALUE_CLOSE_RE, "</span>");
     // 表格标签后跟空行：避免 markdown-it 把紧随的表格行吞进 HTML 块
     t = t.replace(
       TABLE_OPEN_RE,

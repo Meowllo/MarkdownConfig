@@ -2,7 +2,7 @@
 
 import * as fs from "fs";
 import { buildConfig, canonicalJson, declaredOrderJson, sortKeys } from "./config";
-import { inferValue } from "./infer";
+import { inferValue, parseArrayValue } from "./infer";
 import {
   allComments,
   appendOp,
@@ -53,12 +53,14 @@ export {
   nextCommentId,
   openComments,
   parse,
+  parseArrayValue,
   parseTable,
   prevHash,
   readOps,
   sortKeys,
 };
 export type {
+  ArrayEntry,
   Block,
   ConfigEntry,
   JournalOp,

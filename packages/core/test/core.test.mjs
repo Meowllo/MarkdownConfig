@@ -117,3 +117,27 @@ test("journal：append/read/comment/resolve 闭环", () => {
   assert.equal(openComments(file).length, 0);
   fs.rmSync(tmp, { recursive: true, force: true });
 });
+
+test("@array：自动推断 / type=string 强制 / 元素混合类型", () => {
+  const auto = parse("<!--@array M-->1/a/true<!--@/array-->\n");
+  assert.equal(auto.errors.length, 0);
+  assert.deepEqual(buildConfig(auto).config.M, [1, "a", true]);
+
+  const forced = parse("<!--@array M type=string-->1/2/3<!--@/array-->\n");
+  assert.deepEqual(buildConfig(forced).config.M, ["1", "2", "3"]);
+
+  const empty = parse("<!--@array M--><!--@/array-->\n");
+  assert.deepEqual(buildConfig(empty).config.M, []);
+});
+
+test("表格内联标记：未闭合/错配 → fail loud", () => {
+  const unclosed =
+    "<!--@table T-->\n| a |\n| --- |\n| <!--@var X-->1 |\n<!--@/table-->\n";
+  const r1 = parse(unclosed);
+  assert.ok(r1.errors.some((e) => /未闭合|错配/.test(e.message)));
+
+  const wrongClose =
+    "<!--@table T-->\n| a |\n| --- |\n| <!--@var X-->1<!--@/array--> |\n<!--@/table-->\n";
+  const r2 = parse(wrongClose);
+  assert.ok(r2.errors.length > 0, "开闭 kind 错配应报错");
+});
