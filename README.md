@@ -41,9 +41,9 @@ MarkdownConfig/
 
 ├── packages/vscode/         # P2：VS Code 扩展（高亮 / hover / 评论 / watcher / 文档模式）
 
-├── packages/markdownconfig/ # npm 发布包（mc CLI + 库，零依赖；npx markdownconfig）
+├── packages/markdownconfig/ # 发布包（mc CLI + 库，零依赖；经 GitHub Release 分发）
 
-├── python/markdownconfig/   # PyPI 发布包：Python Tier-1 读取库（读取时调 CLI）
+├── python/markdownconfig/   # Python Tier-1 读取库（读取时经 npx 调 CLI；GitHub Release 分发）
 
 ├── scripts/gen-golden.mjs   # 由规范实现重新生成黄金语料
 
@@ -53,6 +53,21 @@ MarkdownConfig/
 ```
 
 ## 快速开始
+
+### 0. 直接安装（无需克隆，通过 GitHub Release）
+
+```
+# CLI 免安装运行（需要 Node.js 18+）
+npx -y https://github.com/Meowllo/MarkdownConfig/releases/latest/download/markdownconfig.tgz export app.mc
+
+# CLI 全局安装
+npm install -g https://github.com/Meowllo/MarkdownConfig/releases/latest/download/markdownconfig.tgz
+
+# Python 库（读取时经 npx 自动调用 CLI，无需单独安装）
+pip install https://github.com/Meowllo/MarkdownConfig/releases/latest/download/markdownconfig-py.tar.gz
+
+# VS Code 扩展：Release 下载 markdownconfig-vscode.vsix → 扩展面板「从 VSIX 安装」
+```
 
 ### 1. 构建核心（TypeScript）
 
@@ -175,7 +190,7 @@ VS Code 扩展面板 → `...` → 「从 VSIX 安装…」→ 选择 `dist/mark
 
 * **Tier 0**：构建期 `mc export` 编译为 JSON，任何语言标准库读取，零成本。
 
-* **Tier 1（当前实现）**：语言侧薄封装，读取时调用 CLI—— 本仓库的 `python/markdownconfig`（PyPI 包名 markdownconfig）即此形态。
+* **Tier 1（当前实现）**：语言侧薄封装，读取时调用 CLI—— 本仓库的 `python/markdownconfig`（经 GitHub Release 分发）即此形态；找不到本地 mc 时自动经 npx 拉取 Release 包。
 
 * **Tier 2（未来，按需）**：原生解析器移植（C/C++/Java/Go/Rust…），以黄金语料为一致性基准。
 
@@ -203,6 +218,8 @@ cd packages/vscode && npm test      # 扩展纯逻辑 20 项 + mock vscode 冒�
 
 * [x] P2 ToHuman：VS Code 扩展（config 值蓝色高亮 / hover 变量名 / 评论面板+选中文本评论 / 导出 JSON / watcher 双轨留痕 / **文档模式预览编辑**；.mc 注册为 Markdown 双模式）— 已产出 `dist/markdownconfig-vscode-0.2.2.vsix`（文档模式：webview 脚本内联进面板 HTML，消除外部脚本加载失败导致的空白；初始化错误直接显示在面板上）；`TYPE` 支持 `string|number|int|boolean|json|text`
 
-* [ ] P3 Skill：教 Agent 创建 / 编辑 / 读取 .mc 的技能文档
+* [x] P3 Skill：markdownconfig 技能文档（介绍 .mc 是什么、如何创建/查阅/编辑/读评论/作为配置源/从 .md 转换），随 GitHub Release 生效
 
-* [ ] Obsidian 插件（轻量版：高亮 + hover，评论后置）／ dsh（DeepSeek Harness）插件（待确认插件 API 后评估）
+* [x] 发布：GitHub 公开仓库 https://github.com/Meowllo/MarkdownConfig （Release 托管 CLI tgz / Python sdist / VS Code vsix；npm、PyPI 暂缓）
+
+* [ ] Obsidian 插件（已暂缓，后续按需排期）
