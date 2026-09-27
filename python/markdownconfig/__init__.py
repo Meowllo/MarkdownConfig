@@ -18,17 +18,27 @@ class MCPyError(RuntimeError):
     """CLI 调用失败或校验失败。"""
 
 
+# GitHub Release 托管的官方 CLI 包（npm tgz），找不到本地 mc 时经 npx 调用。
+_REMOTE_CLI = (
+    "https://github.com/Meowllo/MarkdownConfig/releases/latest/download/markdownconfig.tgz"
+)
+
+
 def _cli() -> str:
     env = os.environ.get("MC_CLI")
     if env:
         return env
     found = shutil.which("mc")
-    if not found:
-        raise MCPyError(
-            "未找到 mc CLI：请安装 @markdownconfig/core 并把 mc 加入 PATH，"
-            "或用环境变量 MC_CLI 指定（如 MC_CLI='node .../dist/cli.js'）"
-        )
-    return found
+    if found:
+        return found
+    npx = shutil.which("npx")
+    if npx:
+        # npx 会缓存远程 tgz；需要 Node.js 18+。quote 防止路径含空格被拆断。
+        return f"{shlex.quote(npx)} -y {_REMOTE_CLI}"
+    raise MCPyError(
+        "未找到 mc CLI，也未找到 npx：请安装 Node.js 18+（库将经 npx 自动获取 CLI），"
+        "或全局安装 mc，或用环境变量 MC_CLI 指定（如 MC_CLI='node .../dist/cli.js'）"
+    )
 
 
 def _run(args: List[str], cli: Optional[str] = None) -> str:
@@ -69,3 +79,7 @@ def comments(path: str, open_only: bool = True, cli: Optional[str] = None) -> Li
 def journal(path: str, cli: Optional[str] = None) -> List[dict]:
     """读取审计日志。"""
     return json.loads(_run(["journal", str(path)], cli))
+
+
+# 语义别名：load_config 与 load 等价。
+load_config = load
