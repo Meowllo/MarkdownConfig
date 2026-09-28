@@ -1,4 +1,4 @@
-***
+---
 
 name: markdownconfig
 
@@ -6,7 +6,7 @@ description: 介绍并使用 MarkdownConfig（.mc）文件类型 ——Markdown 
 
 
 
-***
+---
 
 # MarkdownConfig：给人读、也给程序读的 Markdown
 
@@ -36,23 +36,26 @@ description: 介绍并使用 MarkdownConfig（.mc）文件类型 ——Markdown 
 
 `mc` 是操作 .mc 的命令行。**不要自己手写解析器**。工具通过 GitHub Release 分发（需要 Node.js 18+；网络受限时为终端配置代理）。
 
-> **用固定版本 URL，不要用 latest**：npx 按 URL 缓存，latest 更新后本地不会自动刷新；固定版本还保证读取可复现、可追溯。下例以 `v0.3.0` 为准，升级时把版本号整体替换。
+> **用固定版本 URL，不要用 latest**：npx 按 URL 缓存，latest 更新后本地不会自动刷新；固定版本还保证读取可复现、可追溯。下例以 `v0.3.1` 为准，升级时把版本号整体替换。
 
 * **首选，零安装**：用 npx 直接运行官方 tgz（首次自动下载、之后走缓存）：
 
 ```
-npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.0/markdownconfig.tgz export app.mc
+npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.1/markdownconfig.tgz export app.mc
 ```
 
-后续命令同理，把 `mc ...` 换成 `npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.0/markdownconfig.tgz ...`。
+后续命令同理，把 `mc ...` 换成 `npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.1/markdownconfig.tgz ...`。
 
-* **或全局安装**：`npm install -g https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.0/markdownconfig.tgz`，之后直接用 `mc`。
+* **或全局安装**：`npm install -g https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.1/markdownconfig.tgz`，之后直接用 `mc`。
 
-* **Python 程序直接读配置**：`pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.0/markdownconfig-py.tar.gz`（库在读取时经 npx 自动调用同一版本 CLI，无需单独安装，见下文）。
+* **升级（重要）**：包名在历史版本间变动过（0.1/0.2 为 `markdownconfig`、0.3.0 为 `@markdownconfig/core`，**0.3.1 起固定为 `markdownconfig` 不再变更**）。从旧版升级先卸载再装，避免 bin 冲突：
+  `npm rm -g markdownconfig @markdownconfig/core 2>/dev/null; npm i -g <上面的固定版本 tgz>`。
+
+* **Python 程序直接读配置**：`pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.1/markdownconfig-py.tar.gz`（库在读取时经 npx 自动调用同一版本 CLI，无需单独安装，见下文）。
 
 * **VS Code 编辑器**：从 Release 下载 `markdownconfig-vscode.vsix`，扩展面板 → Install from VSIX。
 
-* 确实要始终跟最新：把 `download/v0.3.0` 换成 `latest/download`，但需加 `--prefer-online`，或升级后 `npm cache clean --force`。
+* 确实要始终跟最新：把 `download/v0.3.1` 换成 `latest/download`，但需加 `--prefer-online`，或升级后 `npm cache clean --force`。
 
 * 以上都不可用时（无 Node / 无网络）：.mc 仍是纯文本，可按 [references/syntax.md](references/syntax.md) 的标记规则人工 / 自行解析，但应优先获取官方工具以保证 canonical 输出一致。
 
@@ -128,9 +131,9 @@ mc add app.mc feature.newFlag true  # 新增变量
 
 * 通用方式：`mc export app.mc` 得到标准 JSON，任何语言都能读 JSON；或脚本里 shell 调用。
 
-* Node：`npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.0/markdownconfig.tgz export` 后 `JSON.parse`。
+* Node：`npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.1/markdownconfig.tgz export` 后 `JSON.parse`。
 
-* Python：`pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.0/markdownconfig-py.tar.gz`，然后 `from markdownconfig import load_config; cfg = load_config("app.mc")`（也可用 `get/comments/journal/validate`；库在读取时经 npx 自动调用同一版本 CLI，无需单独安装，也可用环境变量 `MC_CLI` 指定本地 CLI）。
+* Python：`pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.1/markdownconfig-py.tar.gz`，然后 `from markdownconfig import load_config; cfg = load_config("app.mc")`（也可用 `get/comments/journal/validate`；库在读取时经 npx 自动调用同一版本 CLI，无需单独安装，也可用环境变量 `MC_CLI` 指定本地 CLI）。
 
 * 设计目标是像 JSON 一样跨语言通用：**canonical JSON 是第一公民**，各语言只做薄封装。
 

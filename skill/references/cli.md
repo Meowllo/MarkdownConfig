@@ -4,16 +4,17 @@
 
 ## 安装
 
-工具通过 GitHub Release 分发（需要 Node.js 18+；网络受限时为终端配置代理）。**用固定版本 URL（不要用 latest，npx 会缓存导致升级不生效）**，下例为 v0.3.0：
+工具通过 GitHub Release 分发（需要 Node.js 18+；网络受限时为终端配置代理）。**用固定版本 URL（不要用 latest，npx 会缓存导致升级不生效）**，下例为 v0.3.1：
 
 - 零安装运行（首次自动下载官方 tgz、之后走缓存）：
 
   ```bash
-  npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.0/markdownconfig.tgz <command>
+  npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.1/markdownconfig.tgz <command>
   ```
 
-- 全局安装：`npm install -g https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.0/markdownconfig.tgz`，之后直接用 `mc`。
-- Python 库（程序内直接读 .mc，读取时经 npx 自动调用同一版本 CLI）：`pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.0/markdownconfig-py.tar.gz`。
+- 全局安装：`npm install -g https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.1/markdownconfig.tgz`，之后直接用 `mc`。
+- 升级（包名在 0.3.0 曾为 `@markdownconfig/core`，0.3.1 起固定为 `markdownconfig`）：先 `npm rm -g markdownconfig @markdownconfig/core 2>/dev/null` 再安装，避免 bin 冲突。
+- Python 库（程序内直接读 .mc，读取时经 npx 自动调用同一版本 CLI）：`pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.1/markdownconfig-py.tar.gz`。
 - VS Code 编辑器：Release 下载 `markdownconfig-vscode.vsix` → Install from VSIX。
 - 源码仓库：https://github.com/Meowllo/MarkdownConfig
 

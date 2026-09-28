@@ -56,17 +56,20 @@ MarkdownConfig/
 
 ### 0. 直接安装（无需克隆，通过 GitHub Release）
 
-> 用固定版本 URL（不要用 latest）：npx 按 URL 缓存，latest 更新后不会自动刷新；固定版本也保证可复现。下例为 v0.3.0。
+> 用固定版本 URL（不要用 latest）：npx 按 URL 缓存，latest 更新后不会自动刷新；固定版本也保证可复现。下例为 v0.3.1。
 
 ```
 # CLI 免安装运行（需要 Node.js 18+）
-npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.0/markdownconfig.tgz export app.mc
+npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.1/markdownconfig.tgz export app.mc
 
 # CLI 全局安装
-npm install -g https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.0/markdownconfig.tgz
+npm install -g https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.1/markdownconfig.tgz
+# 从旧版升级（包名在 0.3.0 曾为 @markdownconfig/core，0.3.1 起固定 markdownconfig）：
+#   npm rm -g markdownconfig @markdownconfig/core 2>/dev/null
+#   npm i -g https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.1/markdownconfig.tgz
 
 # Python 库（读取时经 npx 自动调用同一版本 CLI，无需单独安装）
-pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.0/markdownconfig-py.tar.gz
+pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.1/markdownconfig-py.tar.gz
 
 # VS Code 扩展：Release 下载 markdownconfig-vscode.vsix → 扩展面板「从 VSIX 安装」
 
@@ -158,7 +161,7 @@ MC\_CLI="node /path/to/packages/core/dist/cli.js" python3 your\_program.py
 
 
 ```
-import { loadConfig, canonicalJson } from "@markdownconfig/core";
+import { loadConfig, canonicalJson } from "markdownconfig";
 
 const { config, errors, parseErrors } = loadConfig("examples/app.mc");
 

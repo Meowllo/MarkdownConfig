@@ -15,7 +15,7 @@ import {
 import { parse } from "./scanner";
 import type { McError, VarEntry } from "./types";
 
-const VERSION = "0.3.0";
+const VERSION = "0.3.1";
 
 const HELP = `MarkdownConfig CLI v${VERSION}
 
@@ -379,4 +379,15 @@ function main(): void {
   }
 }
 
+// 管道被下游提前关闭（| head / | less / | grep -m1）不是错误：优雅退出，避免 EPIPE 崩溃（#9）
+function installPipeGuard(): void {
+  const onError = (err: NodeJS.ErrnoException): void => {
+    if (err.code === "EPIPE") process.exit(0);
+    throw err;
+  };
+  process.stdout.on("error", onError);
+  process.stderr.on("error", onError);
+}
+
+installPipeGuard();
 main();
