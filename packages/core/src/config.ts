@@ -51,7 +51,7 @@ export function buildConfig(
     if (e.kind === "var") setPath(e.name, e.value, e.line);
     else if (e.kind === "array") setPath(e.name, e.value, e.line);
     else if (e.kind === "range") setPath(e.name, e.value, e.line);
-    else setPath(e.name, e.rows, e.line);
+    else setPath(e.name, e.data, e.line);
   }
   return { config: root, errors };
 }

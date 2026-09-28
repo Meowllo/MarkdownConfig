@@ -1,6 +1,8 @@
 /** MarkdownConfig 核心测试（node --test，纯 JS） */
 
 import assert from "node:assert/strict";
+import child_process from "node:child_process";
+import crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -132,12 +134,12 @@ test("@array：自动推断 / type=string 强制 / 元素混合类型", () => {
 
 test("表格内联标记：未闭合/错配 → fail loud", () => {
   const unclosed =
-    "<!--@table T-->\n| a |\n| --- |\n| <!--@var X-->1 |\n<!--@/table-->\n";
+    "<!--@table T-->\n| id | v |\n| --- | --- |\n| a | <!--@var X-->1 |\n<!--@/table-->\n";
   const r1 = parse(unclosed);
   assert.ok(r1.errors.some((e) => /未闭合|错配/.test(e.message)));
 
   const wrongClose =
-    "<!--@table T-->\n| a |\n| --- |\n| <!--@var X-->1<!--@/array--> |\n<!--@/table-->\n";
+    "<!--@table T-->\n| id | v |\n| --- | --- |\n| a | <!--@var X-->1<!--@/array--> |\n<!--@/table-->\n";
   const r2 = parse(wrongClose);
   assert.ok(r2.errors.length > 0, "开闭 kind 错配应报错");
 });
@@ -176,6 +178,149 @@ test("单元格三态：单标记裸值 / 尾巴注释不进值 / 多标记对�
   const res = parse(src);
   assert.equal(res.errors.length, 0);
   const t = res.entries.find((e) => e.name === "T");
-  assert.equal(t.kind === "table" && t.rows[0].v, 2);
-  assert.deepEqual(t.kind === "table" && t.rows[1].v, { X: 1, Y: 2 });
+  assert.equal(t.kind === "table" && t.data.a.v, 2);
+  assert.deepEqual(t.kind === "table" && t.data.c.v, { X: 1, Y: 2 });
+});
+
+test("表格：第一列是 id 列，输出 id→其余列对象，id 列不进入行数据", () => {
+  const src = [
+    "<!--@table TABLE-->",
+    "| A | B | C |",
+    "| --- | --- | --- |",
+    "| 1 | 2 | 3 |",
+    "| 2 | 3 | 4 |",
+    "<!--@/table-->",
+  ].join("\n");
+  const res = parse(src);
+  assert.equal(res.errors.length, 0);
+  assert.deepEqual(buildConfig(res).config.TABLE, {
+    1: { B: 2, C: 3 },
+    2: { B: 3, C: 4 },
+  });
+  const t = res.entries.find((e) => e.name === "TABLE");
+  assert.equal(t.kind === "table" && t.idColumn, "A");
+});
+
+test("表格：id 重复 / 为空 / 只有一列 → fail loud", () => {
+  const dup = parse("<!--@table T-->\n| id | v |\n| --- | --- |\n| a | 1 |\n| a | 2 |\n<!--@/table-->\n");
+  assert.ok(dup.errors.some((e) => /id 列取值重复/.test(e.message)));
+
+  const blank = parse("<!--@table T-->\n| id | v |\n| --- | --- |\n|  | 1 |\n<!--@/table-->\n");
+  assert.ok(blank.errors.some((e) => /不能为空/.test(e.message)));
+
+  const oneCol = parse("<!--@table T-->\n| id |\n| --- |\n| a |\n<!--@/table-->\n");
+  assert.ok(oneCol.errors.some((e) => /至少需要两列/.test(e.message)));
+});
+
+test("@array 嵌套：无名 → 裸子数组；有名 → 对象元素", () => {
+  const unnamed = parse(
+    "<!--@array A--> 1/2/<!--@array -->3/4/5<!--@/array--><!--@/array-->\n",
+  );
+  assert.equal(unnamed.errors.length, 0);
+  assert.deepEqual(buildConfig(unnamed).config.A, [1, 2, [3, 4, 5]]);
+
+  const named = parse(
+    "<!--@array A--> 1/2/<!--@array B-->3/4/5<!--@/array--><!--@/array-->\n",
+  );
+  assert.equal(named.errors.length, 0);
+  assert.deepEqual(buildConfig(named).config.A, [1, 2, { B: [3, 4, 5] }]);
+
+  // 单元格内联同样支持嵌套（#11 的真实场景：一格里的"三选一"）
+  const cell = parse(
+    [
+      "<!--@table T-->",
+      "| id | 可选 |",
+      "| --- | --- |",
+      "| ring | 暴击伤害/攻击速度/<!--@array-->近战/远程/法术<!--@/array--> |",
+      "<!--@/table-->",
+    ].join("\n"),
+  );
+  assert.equal(cell.errors.length, 0);
+  const t = cell.entries.find((e) => e.name === "T");
+  assert.deepEqual(t.kind === "table" && t.data.ring.可选, ["暴击伤害", "攻击速度", ["近战", "远程", "法术"]]);
+});
+
+test("@array 嵌套：非数组嵌套 / 重名 / 顶层无名 → fail loud", () => {
+  const bad = parse("<!--@array A-->1/<!--@var X-->2<!--@/var--><!--@/array-->\n");
+  assert.ok(bad.errors.some((e) => /只支持嵌套 @array/.test(e.message)));
+
+  const dupName = parse(
+    "<!--@array A-->1/<!--@array B-->2<!--@/array-->/<!--@array B-->3<!--@/array--><!--@/array-->\n",
+  );
+  assert.ok(dupName.errors.some((e) => /嵌套数组名重复/.test(e.message)));
+
+  const topUnnamed = parse("<!--@array -->1/2<!--@/array-->\n");
+  assert.ok(topUnnamed.errors.some((e) => /顶层 @array 必须命名/.test(e.message)));
+});
+
+test("#14 正文里的标记：报错附带「示例要放围栏」的提示", () => {
+  const res = parse("# t\n\n> 例 `…<!--@/range--> 护甲区间`。\n");
+  const withHint = res.errors.find((e) => e.hint);
+  assert.ok(withHint, "应给出 hint");
+  assert.match(withHint.hint, /围栏/);
+
+  // 放进围栏 → 不报错
+  const fenced = parse("# t\n\n```text\n<!--@/range-->\n```\n");
+  assert.equal(fenced.errors.length, 0);
+});
+
+test("mc set 表格单元格：按 id 命中唯一格，改写后复校验，--no-journal 不建 .mc/", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mc-set-"));
+  const file = path.join(tmp, "t.mc");
+  const cli = path.join(__dirname, "..", "dist", "cli.js");
+  fs.writeFileSync(
+    file,
+    [
+      "# t",
+      "",
+      "<!--@table T-->",
+      "| key | value | 说明 |",
+      "| --- | --- | --- |",
+      "| slots | 4 | 技能格数 |",
+      "<!--@/table-->",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const run = (args) => child_process.execFileSync(process.execPath, [cli, ...args], { encoding: "utf8" });
+
+  assert.equal(run(["get", file, "T.slots.value"]).trim(), "4");
+  assert.equal(run(["set", file, "T.slots.value", "6", "--no-journal"]).trim(), "T.slots.value = 6");
+  assert.equal(run(["get", file, "T.slots.value"]).trim(), "6");
+  assert.match(fs.readFileSync(file, "utf8"), /\| slots \| 6 \| 技能格数 \|/);
+  assert.equal(fs.existsSync(path.join(tmp, ".mc")), false, "--no-journal 不应创建 .mc/");
+
+  // 目标 id 不存在 → 定位失败，且报错说明可用 id
+  assert.throws(
+    () => run(["set", file, "T.nope.value", "1"]),
+    (e) => (e.stderr ?? "").includes("不存在 id"),
+  );
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test("mc init <file.mc> 生成可直接校验通过的骨架", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mc-init-"));
+  const file = path.join(tmp, "new.mc");
+  const cli = path.join(__dirname, "..", "dist", "cli.js");
+  const run = (args) => child_process.execFileSync(process.execPath, [cli, ...args], { encoding: "utf8" });
+
+  run(["init", file]);
+  assert.equal(run(["validate", file]).trim(), "OK");
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test("mc export --fingerprint：sha256=源文本、sha256File=文件字节，--no-timestamp 可复现", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mc-fp-"));
+  const file = path.join(tmp, "fp.mc");
+  const cli = path.join(__dirname, "..", "dist", "cli.js");
+  const source = "# t\n\n<!--@var A-->1<!--@/var-->\n";
+  fs.writeFileSync(file, source, "utf8");
+  const run = (args) => child_process.execFileSync(process.execPath, [cli, ...args], { encoding: "utf8" });
+
+  const fp = JSON.parse(run(["export", file, "--fingerprint", "--no-timestamp"])).$fingerprint;
+  assert.equal(fp.sha256, crypto.createHash("sha256").update(JSON.stringify(source)).digest("hex"));
+  assert.equal(fp.sha256File, crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex"));
+  assert.equal(fp.generatedAt, undefined);
+  fs.rmSync(tmp, { recursive: true, force: true });
 });

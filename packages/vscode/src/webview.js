@@ -3,7 +3,7 @@
  * 由 esbuild 打包为 out/webview.js（含 markdown-it 与 core 扫描器，无 node 依赖）
  */
 import MarkdownIt from "markdown-it";
-import { parse } from "@markdownconfig/core/dist/scanner.js";
+import { parse } from "markdownconfig/dist/scanner.js";
 import { preprocessForRender } from "./render-preprocess";
 
 const root = document.getElementById("root");

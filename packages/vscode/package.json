@@ -2,7 +2,7 @@
   "name": "markdownconfig-vscode",
   "displayName": "MarkdownConfig",
   "description": ".mc 文件预览与编辑：config 值蓝色高亮、hover 显示变量名、锚定评论、人工编辑留痕",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "publisher": "markdownconfig",
   "engines": {
     "vscode": "^1.85.0"
@@ -148,8 +148,8 @@
     "test": "npm run build && node --test"
   },
   "dependencies": {
-    "@markdownconfig/core": "file:../core",
-    "markdown-it": "^14.1.0"
+    "markdown-it": "^14.1.0",
+    "markdownconfig": "file:../core"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

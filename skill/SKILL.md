@@ -36,26 +36,26 @@ description: 介绍并使用 MarkdownConfig（.mc）文件类型 ——Markdown 
 
 `mc` 是操作 .mc 的命令行。**不要自己手写解析器**。工具通过 GitHub Release 分发（需要 Node.js 18+；网络受限时为终端配置代理）。
 
-> **用固定版本 URL，不要用 latest**：npx 按 URL 缓存，latest 更新后本地不会自动刷新；固定版本还保证读取可复现、可追溯。下例以 `v0.3.1` 为准，升级时把版本号整体替换。
+> **用固定版本 URL，不要用 latest**：npx 按 URL 缓存，latest 更新后本地不会自动刷新；固定版本还保证读取可复现、可追溯。下例以 `v0.5.0` 为准，升级时把版本号整体替换。
 
 * **首选，零安装**：用 npx 直接运行官方 tgz（首次自动下载、之后走缓存）：
 
 ```
-npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.1/markdownconfig.tgz export app.mc
+npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.5.0/markdownconfig.tgz export app.mc
 ```
 
-后续命令同理，把 `mc ...` 换成 `npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.1/markdownconfig.tgz ...`。
+后续命令同理，把 `mc ...` 换成 `npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.5.0/markdownconfig.tgz ...`。
 
-* **或全局安装**：`npm install -g https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.1/markdownconfig.tgz`，之后直接用 `mc`。
+* **或全局安装**：`npm install -g https://github.com/Meowllo/MarkdownConfig/releases/download/v0.5.0/markdownconfig.tgz`，之后直接用 `mc`。
 
 * **升级（重要）**：包名在历史版本间变动过（0.1/0.2 为 `markdownconfig`、0.3.0 为 `@markdownconfig/core`，**0.3.1 起固定为 `markdownconfig` 不再变更**）。从旧版升级先卸载再装，避免 bin 冲突：
   `npm rm -g markdownconfig @markdownconfig/core 2>/dev/null; npm i -g <上面的固定版本 tgz>`。
 
-* **Python 程序直接读配置**：`pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.1/markdownconfig-py.tar.gz`（库在读取时经 npx 自动调用同一版本 CLI，无需单独安装，见下文）。
+* **Python 程序直接读配置**：`pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.5.0/markdownconfig-py.tar.gz`（库在读取时经 npx 自动调用同一版本 CLI，无需单独安装，见下文）。
 
 * **VS Code 编辑器**：从 Release 下载 `markdownconfig-vscode.vsix`，扩展面板 → Install from VSIX。
 
-* 确实要始终跟最新：把 `download/v0.3.1` 换成 `latest/download`，但需加 `--prefer-online`，或升级后 `npm cache clean --force`。
+* 确实要始终跟最新：把 `download/v0.5.0` 换成 `latest/download`，但需加 `--prefer-online`，或升级后 `npm cache clean --force`。
 
 * 以上都不可用时（无 Node / 无网络）：.mc 仍是纯文本，可按 [references/syntax.md](references/syntax.md) 的标记规则人工 / 自行解析，但应优先获取官方工具以保证 canonical 输出一致。
 
@@ -75,7 +75,7 @@ npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.1/markdo
 
 ### 从零创建
 
-* `mc init app.mc` 生成骨架；或直接新建 `.mc` 文件写 Markdown，在需要的位置加标记。
+* `mc init app.mc` 生成一份**可直接通过校验**的骨架（已存在时加 `--force` 覆盖）；也可直接新建 `.mc` 文件写 Markdown，在需要的位置加标记。
 
 * 标记渲染时自动隐藏，**值即所见文本**，不影响人读。
 
@@ -90,9 +90,11 @@ mc export app.mc            # 导出 canonical JSON（键排序、2 空格缩进
 
 mc get app.mc server.port   # 取单个变量
 
+mc get app.mc METRICS.cpu.等级   # 取表格单元格（按 id 定位）
+
 mc blocks app.mc            # 列出块：行区间、id、类型
 
-mc tables app.mc            # 列出已标记表 + 未标记表计数（--all 列明细）
+mc tables app.mc            # 列出已标记表（id 行数 / 行区间）+ 未标记表计数
 
 mc journal app.mc           # 查看审计日志
 ```
@@ -102,7 +104,9 @@ mc journal app.mc           # 查看审计日志
 
 
 ```
-mc set app.mc server.port 9000   # 修改变量（自动落审计日志）
+mc set app.mc server.port 9000      # 修改变量（自动落审计日志）
+
+mc set app.mc METRICS.cpu.阈值 85    # 按 id 改表格单元格（行列按名字定位，不用文本手术）
 
 mc add app.mc feature.newFlag true  # 新增变量
 ```
@@ -111,7 +115,9 @@ mc add app.mc feature.newFlag true  # 新增变量
 
 * 需要锚定 / 跳转 / 评论的段落，行尾加块 id（Obsidian 风格），如 `# 服务配置 ^top` 或段落后单独一行 `^b12`。
 
-* 直接用文本编辑器改正文也可以；但**只有走&#x20;**`mc set/add`**（或带留痕能力的 .mc 编辑器）才会自动记审计日志**。
+* 表格单元格用 `<表名>.<id>.<列>` 定位；该行只有一列数据时可省列名。加 `--no-journal` 则不写审计日志、也不创建 `.mc/` 目录。
+
+* 直接用文本编辑器改正文也可以；但**只有走 `mc set/add`（或带留痕能力的 .mc 编辑器）才会自动记审计日志**。
 
 ## 评论工作流（人类提意见 → Agent 修改）
 
@@ -131,9 +137,9 @@ mc add app.mc feature.newFlag true  # 新增变量
 
 * 通用方式：`mc export app.mc` 得到标准 JSON，任何语言都能读 JSON；或脚本里 shell 调用。
 
-* Node：`npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.1/markdownconfig.tgz export` 后 `JSON.parse`。
+* Node：`npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.5.0/markdownconfig.tgz export` 后 `JSON.parse`。
 
-* Python：`pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.3.1/markdownconfig-py.tar.gz`，然后 `from markdownconfig import load_config; cfg = load_config("app.mc")`（也可用 `get/comments/journal/validate`；库在读取时经 npx 自动调用同一版本 CLI，无需单独安装，也可用环境变量 `MC_CLI` 指定本地 CLI）。
+* Python：`pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.5.0/markdownconfig-py.tar.gz`，然后 `from markdownconfig import load_config; cfg = load_config("app.mc")`（也可用 `get/comments/journal/validate`；库在读取时经 npx 自动调用同一版本 CLI，无需单独安装，也可用环境变量 `MC_CLI` 指定本地 CLI）。
 
 * 设计目标是像 JSON 一样跨语言通用：**canonical JSON 是第一公民**，各语言只做薄封装。
 
@@ -154,32 +160,34 @@ mc add app.mc feature.newFlag true  # 新增变量
 
 
 ```
-超时：\<!--@var server.timeoutMs type=int-->3000\<!--@/var--> 毫秒
+超时：<!--@var server.timeoutMs type=int-->3000<!--@/var--> 毫秒
 
-\<!--@table METRICS-->
+<!--@table METRICS-->
+| id | 阈值 | 等级 |
+| --- | --- | --- |
+| cpu | 80 | warn |
+<!--@/table-->
+   ↑ 第一列固定为 id 列（非空、标量、逐行唯一），读出 { "cpu": { "阈值": 80, "等级": "warn" } }
 
-\| 指标 | 阈值 | 等级 |
+数组：标签 <!--@array TAGS-->a/b/c<!--@/array-->（`/` 分隔，逐元素推断；可加 type= 强制；空值=[]）
 
-\| --- | --- | --- |
+嵌套数组：<!--@array A-->1/2/<!--@array B-->3/4<!--@/array--><!--@/array-->
+   ↑ 无名嵌套 → 裸子数组；具名嵌套 → 对象元素：A = [1, 2, { "B": [3, 4] }]
 
-\| cpu | 80 | warn |
-
-\<!--@/table-->
-
-数组：标签 \<!--@array TAGS-->a/b/c\<!--@/array-->（`/` 分隔，逐元素推断；可加 type= 强制；空值=[]）
-
-区间：\<!--@range AttackRange-->1~5\<!--@/range-->（读出 {min,max}；支持全角 ～；必须单行）
+区间：<!--@range AttackRange-->1~5<!--@/range-->（读出 {min,max}；支持全角 ～；必须单行）
 ```
 
 
 
-* 类型（可选）：`string | number | int | boolean | json | text`，缺省自动推断；**值含换行必须声明&#x20;**`type=json`**&#x20;或&#x20;**`type=text`。
+* 类型（可选）：`string | number | int | boolean | json | text`，缺省自动推断；**值含换行必须声明 `type=json` 或 `type=text`**。
 
-* 表格单元格可内联 `@var/@array/@range`，三态：整格**一个**标记 → 裸值；整格**多个**标记 → 对象 `{ 名: 值 }`；标记关闭后还跟文本（"尾巴"）→ 尾巴是**人读注释**，不进配置、保留在源文件（见 [references/syntax.md](references/syntax.md)）。
+* **表格第一列是 id 列**：导出为 `{ id: { 其余列 } }`（id 列本身不进行数据）；表格至少两列，id 不得为空或重复。
 
-* 不带 `@` 的 `<!-- ... -->` 普通注释忽略；围栏代码块（` ` \`\`\`）内的标记忽略。
+* 单元格四种形态：格内有**无名** `@array` → 整格按数组体切分（`A/B/<!--@array-->C/D<!--@/array-->` → `["A","B",["C","D"]]`）；整格**一个具名**标记 → 裸值；整格**多个**标记 → 对象 `{ 名: 值 }`；整格无标记 → 纯文本推断。**具名标记之外**的文本是**人读注释**，不进配置、保留在源文件（见 [references/syntax.md](references/syntax.md)）。
 
-* 来源指纹：`mc export app.mc --fingerprint` 在顶层加 `$fingerprint`（source / sha256 / mcVersion / generatedAt）；下游忽略 `$` 前缀键，可用 sha256 做来源过期门禁。
+* 不带 `@` 的 `<!-- ... -->` 普通注释忽略；围栏代码块（``` / ~~~）内的标记忽略。**想展示标记本身（写示例）必须放进围栏**，否则会被当成真配置并以「关闭标记缺少开始标记」报错。
+
+* 来源指纹：`mc export app.mc --fingerprint` 在顶层加 `$fingerprint`（source / sha256 / sha256File / mcVersion / generatedAt）；`sha256` 是**源文本**的哈希，`sha256File` 是**文件字节**的哈希（可直接 `shasum -a 256` 复算），`generatedAt` 会破坏字节稳定（要可复现就加 `--no-timestamp`）。下游忽略 `$` 前缀键。
 
 完整语法、类型规则与错误表见 [references/syntax.md](references/syntax.md)；完整命令与参数见 [references/cli.md](references/cli.md)。
 
@@ -191,6 +199,10 @@ mc add app.mc feature.newFlag true  # 新增变量
 
 * 表格开闭标记必须各占一行；表格内的变量/数组用**单元格内联标记**（见语法速查），不要把顶层 @var/@array 跨在表格区域上。
 
+* **建表先想 id 列**：第一列会被当作 id 且必须逐行唯一。若原始表格第一列会重复（如"分组"列），要么调整列序让唯一的那列排到第一，要么补一列 id。
+
+* 单元格里要表达"若干单位，其中某几个是一组"时用**无名嵌套 `@array`**（见语法速查），**不要把组拍平**——拍平会改变每个候选被选中的概率。
+
 * 同名变量重复声明报错（覆盖需 `mc export --allow-override`）；`site.title` 与 `site` 并存报错。
 
-* 值含换行未声明类型、标记未闭合 / 嵌套 → 报错。改完必跑 `mc validate`。
+* 值含换行未声明类型、标记未闭合 / 嵌套非法 → 报错。改完必跑 `mc validate`。

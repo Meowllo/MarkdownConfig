@@ -1,4 +1,4 @@
-/** 用 esbuild 把 @markdownconfig/core 内联进 out/extension.js（唯一运行时依赖 vscode） */
+/** 用 esbuild 把 markdownconfig 内联进 out/extension.js（唯一运行时依赖 vscode） */
 
 import { build } from "esbuild";
 import { fileURLToPath } from "node:url";

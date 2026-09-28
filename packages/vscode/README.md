@@ -1,6 +1,6 @@
 # MarkdownConfig — VS Code 扩展
 
-`.mc`（Markdown 超集）文件的编辑与协作插件。依赖核心 SDK `@markdownconfig/core`（仓库内 `packages/core`）。
+`.mc`（Markdown 超集）文件的编辑与协作插件。依赖核心 SDK `markdownconfig`（仓库内 `packages/core`）。
 
 ## 功能
 

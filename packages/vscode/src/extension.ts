@@ -11,7 +11,7 @@ import {
   nextCommentId,
   parse,
   prevHash,
-} from "@markdownconfig/core";
+} from "markdownconfig";
 import { CommentsProvider, McCommentNode } from "./comments";
 import { assignBlockId, computeHighlights, findTargetForSelection, hoverAt, isMcFile } from "./pure";
 import { setupWatcher } from "./watcher";

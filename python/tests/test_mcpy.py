@@ -23,12 +23,14 @@ def test_load():
     assert cfg["server"]["timeoutMs"] == 3000
     assert cfg["feature"]["retry"] is False
     assert cfg["feature"]["pageSize"] == 20  # type=int
-    assert cfg["METRICS"][0] == {"指标": "cpu", "阈值": 80, "等级": "test"}
+    # 表格：第一列是 id 列，读出为 {id: {其余列}}
+    assert cfg["METRICS"]["cpu"] == {"阈值": 80, "等级": "test"}
+    assert cfg["METRICS"]["mem"] == {"阈值": 90, "等级": "critical"}
 
 
 def test_get():
     assert get(str(EXAMPLE), "server.port") == 8080
-    assert get(str(EXAMPLE), "METRICS")[1]["等级"] == "critical"
+    assert get(str(EXAMPLE), "METRICS.mem.等级") == "critical"
 
 
 def test_validate():

@@ -1,6 +1,6 @@
 /** 纯逻辑模块（不依赖 vscode API，可独立单测） */
 
-import { parse } from "@markdownconfig/core";
+import { parse } from "markdownconfig";
 
 export interface HighlightRange {
   start: number;
@@ -8,8 +8,9 @@ export interface HighlightRange {
   kind: "value" | "marker";
 }
 
+// 名称可省略：`<!--@array -->` 是合法的无名嵌套数组
 const MARKER_RE =
-  /<!--@(?:var\s+[A-Za-z_][\w.-]*(?:\s+type=[A-Za-z]+)?|array\s+[A-Za-z_][\w.-]*(?:\s+type=[A-Za-z]+)?|range\s+[A-Za-z_][\w.-]*|table\s+[A-Za-z_][\w.-]*|\/var|\/array|\/range|\/table)-->/g;
+  /<!--@(?:var\s+[A-Za-z_][\w.-]*(?:\s+type=[A-Za-z]+)?|array(?:\s+[A-Za-z_][\w.-]*)?(?:\s+type=[A-Za-z]+)?|range\s+[A-Za-z_][\w.-]*|table\s+[A-Za-z_][\w.-]*|\/var|\/array|\/range|\/table)-->/g;
 
 /** 计算高亮区间：@var/@array/@range 值 → value（蓝），标记本身 → marker（灰） */
 export function computeHighlights(source: string): HighlightRange[] {
@@ -51,7 +52,7 @@ export function hoverAt(source: string, offset: number): HoverInfo | null {
       const openMarker = `<!--@table ${e.name}-->`;
       const idx = source.indexOf(openMarker);
       if (idx >= 0 && offset >= idx && offset <= idx + openMarker.length) {
-        return { name: e.name, type: "table", value: JSON.stringify(e.rows), line: e.line };
+        return { name: e.name, type: "table", value: JSON.stringify(e.data), line: e.line };
       }
     }
   }

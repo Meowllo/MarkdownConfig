@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /** mc CLI：MarkdownConfig 命令行工具 */
 
+import * as crypto from "crypto";
 import * as fs from "fs";
 import * as path from "path";
 import { buildConfig, canonicalJson, declaredOrderJson } from "./config";
@@ -13,25 +14,28 @@ import {
   readOps,
 } from "./journal";
 import { parse } from "./scanner";
-import type { McError, VarEntry } from "./types";
+import { inferValue } from "./infer";
+import type { McError, TableEntry, VarEntry } from "./types";
 
-const VERSION = "0.3.1";
+const VERSION = "0.5.0";
 
 const HELP = `MarkdownConfig CLI v${VERSION}
 
 用法:
   mc export <file> [--order=declared] [--allow-override] [--fingerprint]  导出配置为 JSON（canonical，字节稳定）
-  mc get <file> <name>                                     读取单个变量/表格
+  mc get <file> <name>                                     读取变量 / 表格 / 表格单元格
   mc validate <file>                                       校验标记，错误带行号
   mc blocks <file>                                         列出块（id/type/行号）
   mc tables <file> [--all]                                 列出已标记表 + 未标记表计数
   mc set <file> <name> <value> [--actor=...]               就地修改变量值（落 journal）
+  mc set <file> <TABLE>.<id>.<列> <value>                  就地修改表格单元格（落 journal）
   mc add <file> <name> <value> [--type=TYPE] [--actor=...] 文件末尾新增变量（落 journal）
   mc comment <file> <target> <text> [--actor=...]          对块/变量添加评论（落 journal）
   mc comments <file> [--all]                               列出评论（默认仅未解决）
   mc resolve <file> <comment-id> [--actor=...]             标记评论已解决
   mc journal <file> [--tail=N]                             查看审计日志
   mc log <file> <text> [--target=...] [--actor=...]        追加一条审计记录
+  mc init <file.mc> [--force]                              生成 .mc 骨架文件
   mc init [dir]                                            初始化 .mc 日志目录
   mc version                                               版本信息
 
@@ -39,7 +43,9 @@ const HELP = `MarkdownConfig CLI v${VERSION}
   --actor=human|agent    记录操作者（默认 agent）
   --order=declared       导出按声明顺序（默认 canonical 排序）
   --allow-override       同名变量后者覆盖（默认报错）
-  --fingerprint          导出顶层带来源指纹 \$fingerprint（sha256/版本/时间），供过期门禁
+  --fingerprint          导出顶层带来源指纹 $fingerprint（sha256/sha256File/版本/时间）
+  --no-timestamp         指纹不带 generatedAt（保证输出字节稳定）
+  --no-journal           不写入审计日志
   --all                  评论包含已解决；tables 列出未标记表明细
   --tail=N               journal 只显示最近 N 条
 `;
@@ -65,11 +71,22 @@ function fail(msg: string): never {
 function load(file: string): { abs: string; source: string } {
   const abs = path.resolve(file);
   if (!fs.existsSync(abs)) fail(`文件不存在: ${file}`);
+  if (fs.statSync(abs).isDirectory()) fail(`这是一个目录，不是文件: ${file}`);
   return { abs, source: fs.readFileSync(abs, "utf8") };
 }
 
+/** 文件字节的 sha256（hex）—— 下游可直接用 shasum -a 256 复算 */
+function sha256File(abs: string): string {
+  return crypto.createHash("sha256").update(fs.readFileSync(abs)).digest("hex");
+}
+
+/** 错误输出：message 一行，hint 另起一行缩进（把常见误用直接指向真因） */
+function formatError(e: McError): string {
+  return e.hint ? `${e.line}: ${e.message}\n     提示：${e.hint}` : `${e.line}: ${e.message}`;
+}
+
 function printErrors(errors: McError[]): void {
-  for (const e of errors) console.error(`${e.line}: ${e.message}`);
+  for (const e of errors) console.error(formatError(e));
 }
 
 function parseOrExit(abs: string, source: string): ReturnType<typeof parse> {
@@ -97,19 +114,40 @@ function cmdExport(pos: string[], flags: Record<string, string | boolean>): void
   }
   let outConfig: Record<string, unknown> = config;
   if (flags.fingerprint) {
-    outConfig = {
-      $fingerprint: {
-        source: path.basename(abs),
-        sha256: hashOf(source),
-        mcVersion: VERSION,
-        generatedAt: new Date().toISOString(),
-      },
-      ...config,
+    const fp: Record<string, unknown> = {
+      source: path.basename(abs),
+      // 源文本指纹：sha256(JSON.stringify(源文本))，不是文件字节
+      sha256: hashOf(source),
+      // 文件字节指纹：改注释也算变，可用 shasum -a 256 复算
+      sha256File: sha256File(abs),
+      mcVersion: VERSION,
     };
+    // generatedAt 会破坏字节稳定：需要可复现输出时加 --no-timestamp
+    if (!flags["no-timestamp"]) fp.generatedAt = new Date().toISOString();
+    outConfig = { $fingerprint: fp, ...config };
   }
   const out =
     flags.order === "declared" ? declaredOrderJson(outConfig) : canonicalJson(outConfig);
   process.stdout.write(out);
+}
+
+/** 表格寻址：把 `TABLE.<id>[.<列>]` 解析为表 + id + 列（表名可含点，取最长前缀） */
+function resolveTable(
+  res: ReturnType<typeof parse>,
+  name: string,
+): { table: TableEntry; id: string; col?: string } | null {
+  const tables = res.entries.filter((e): e is TableEntry => e.kind === "table");
+  const parts = name.split(".");
+  for (let k = parts.length - 1; k >= 1; k--) {
+    const tname = parts.slice(0, k).join(".");
+    const table = tables.find((t) => t.name === tname);
+    if (!table) continue;
+    const rest = parts.slice(k);
+    if (rest.length === 1) return { table, id: rest[0] };
+    if (rest.length === 2) return { table, id: rest[0], col: rest[1] };
+    return null;
+  }
+  return null;
 }
 
 function cmdGet(pos: string[], _flags: Record<string, string | boolean>): void {
@@ -118,8 +156,25 @@ function cmdGet(pos: string[], _flags: Record<string, string | boolean>): void {
   const { abs, source } = load(file);
   const res = parseOrExit(abs, source);
   const entry = res.entries.find((e) => e.name === name);
-  if (!entry) fail(`未找到变量: ${name}`);
-  const val = entry.kind === "table" ? entry.rows : entry.value;
+  let val: unknown;
+  if (entry) {
+    val = entry.kind === "table" ? entry.data : entry.value;
+  } else {
+    const target = resolveTable(res, name);
+    if (!target) fail(`未找到变量/表格: ${name}`);
+    const row = target.table.data[target.id];
+    if (!row) {
+      fail(`表格 ${target.table.name} 中不存在 id: ${target.id}（现有 id: ${Object.keys(target.table.data).join(", ")}）`);
+    }
+    const cells = target.table.positions[target.id]?.cells ?? {};
+    if (target.col === undefined) val = row;
+    else if (!Object.prototype.hasOwnProperty.call(cells, target.col)) {
+      fail(
+        `表格 ${target.table.name} 中不存在列: ${target.col}（可选：${Object.keys(cells).join(", ")}）`,
+      );
+    } else if (target.col === target.table.idColumn) val = target.id;
+    else val = row[target.col];
+  }
   process.stdout.write(JSON.stringify(val) + "\n");
 }
 
@@ -132,7 +187,7 @@ function cmdValidate(pos: string[], _flags: Record<string, string | boolean>): v
     console.log("OK");
     return;
   }
-  for (const e of res.errors) console.log(`${e.line}: ${e.message}`);
+  for (const e of res.errors) console.log(formatError(e));
   process.exit(1);
 }
 
@@ -165,19 +220,19 @@ function cmdTables(pos: string[], flags: Record<string, string | boolean>): void
   const { source } = load(file);
   const res = parseOrExit(path.resolve(file), source);
 
-  const marked = res.entries.filter((e) => e.kind === "table");
+  const marked = res.entries.filter((e): e is TableEntry => e.kind === "table");
   const gfm = res.blocks.filter((b) => b.type === "table");
   const covered = new Set<number>();
   const rows: Array<{ name: string; count: number; start: number; end: number }> = [];
   for (const t of marked) {
-    // 已标记表的表头行 = open 标记行 + 1
-    const bi = gfm.findIndex((b) => b.lines[0] === t.line + 1);
+    // 表体行区间由解析结果给出（标记与表头之间允许空行）
+    const bi = gfm.findIndex((b) => b.lines[0] >= t.line + 1 && b.lines[0] <= t.bodyLines[1]);
     if (bi >= 0) covered.add(bi);
     rows.push({
       name: t.name,
-      count: t.kind === "table" ? t.rows.length : 0,
+      count: Object.keys(t.data).length,
       start: t.line,
-      end: bi >= 0 ? gfm[bi].lines[1] : t.line,
+      end: t.bodyLines[1],
     });
   }
   const unmarked = gfm.filter((_, i) => !covered.has(i));
@@ -198,27 +253,135 @@ function actorOf(flags: Record<string, string | boolean>): string {
   return typeof flags.actor === "string" ? flags.actor : "agent";
 }
 
+/** 是否写入审计日志（--no-journal 时不落 .mc/ 目录，避免在 git 仓库里凭空多出目录） */
+function journalEnabled(flags: Record<string, string | boolean>): boolean {
+  return !flags["no-journal"];
+}
+
 function cmdSet(pos: string[], flags: Record<string, string | boolean>): void {
   const [file, name, value] = pos;
   if (!file || !name || value === undefined) fail("用法: mc set <file> <name> <value>");
+  if (value.includes("\n")) fail("set 暂不支持多行值");
+  if (value.includes("<!--@")) fail("值里不能再写标记（<!--@…-->）");
   const { abs, source } = load(file);
   const res = parseOrExit(abs, source);
+
+  // 1) 变量（含点号命名空间）
   const entry = res.entries.find((e) => e.kind === "var" && e.name === name) as
     | VarEntry
     | undefined;
-  if (!entry) fail(`未找到变量 ${name}（新增请用 mc add）`);
-  if (value.includes("\n")) fail("set 暂不支持多行值");
-  const newSource = source.slice(0, entry.valueStart) + value + source.slice(entry.valueEnd);
+  if (entry) {
+    const newSource = source.slice(0, entry.valueStart) + value + source.slice(entry.valueEnd);
+    const after = parse(newSource);
+    if (after.errors.length > 0) {
+      fail(`改写会使文档校验失败，已放弃（文件未修改）：\n  ${after.errors.map(formatError).join("\n  ")}`);
+    }
+    fs.writeFileSync(abs, newSource, "utf8");
+    if (journalEnabled(flags)) {
+      appendOp(abs, {
+        op: "update",
+        actor: actorOf(flags),
+        target: name,
+        hash: hashOf(value),
+        prev_hash: hashOf(entry.valueRaw),
+        text: `set ${name} = ${value}`,
+      });
+    }
+    process.stdout.write(`${name} = ${value}\n`);
+    return;
+  }
+
+  // 2) 表格单元格：TABLE.<id>.<列>
+  const exactTable = res.entries.find((e) => e.kind === "table" && e.name === name) as
+    | TableEntry
+    | undefined;
+  if (exactTable) {
+    fail(
+      `表格 ${name} 需要指定 id 与列：mc set <file> ${name}.<id>.<列> <value>\n` +
+        `     现有 id：${Object.keys(exactTable.data).join(", ") || "（空表）"}`,
+    );
+  }
+  const target = resolveTable(res, name);
+  if (target) {
+    setTableCell(abs, source, target, value, flags);
+    return;
+  }
+
+  const head = name.split(".")[0];
+  if (res.entries.some((e) => e.kind === "table" && e.name === head)) {
+    fail(
+      `未找到 ${name}：要改表格 ${head} 的单元格，请用 mc set <file> ${head}.<id>.<列> <value>`,
+    );
+  }
+  fail(`未找到变量 ${name}（新增请用 mc add；表格单元格请用 <表名>.<id>.<列>）`);
+}
+
+/** 表格单元格就地写入：命中唯一行、唯一格，写完先复校验再落盘 */
+function setTableCell(
+  abs: string,
+  source: string,
+  target: { table: TableEntry; id: string; col?: string },
+  value: string,
+  flags: Record<string, string | boolean>,
+): void {
+  const { table, id } = target;
+  const row = table.data[id];
+  if (!row) {
+    fail(
+      `表格 ${table.name} 中不存在 id: ${id}（现有 id: ${Object.keys(table.data).join(", ") || "（空表）"}）`,
+    );
+  }
+  const allCols = Object.keys(table.positions[id].cells);
+  const dataCols = Object.keys(row);
+  let col = target.col;
+  if (col === undefined) {
+    if (dataCols.length !== 1) {
+      fail(
+        `表格 ${table.name} 的 ${id} 行有多列，请指定列：mc set <file> ${table.name}.${id}.<列> <value>\n` +
+          `     可选列：${allCols.join(", ")}`,
+      );
+    }
+    col = dataCols[0];
+  }
+  const pos = table.positions[id]?.cells[col];
+  if (!pos) {
+    fail(`表格 ${table.name} 中不存在列 ${col}（可选：${allCols.join(", ")}）`);
+  }
+  if (value.includes("|")) fail("值不能包含 |（会破坏表格结构）");
+
+  // 单标记单元格 → 只替换标记内文本，标记与"尾巴"人读注释原样保留
+  const from = pos.inner ? pos.inner.start : pos.start;
+  const to = pos.inner ? pos.inner.end : pos.end;
+  const newSource = source.slice(0, from) + value + source.slice(to);
+
+  const after = parse(newSource);
+  if (after.errors.length > 0) {
+    fail(
+      `改写会使文档校验失败，已放弃（文件未修改）：\n  ${after.errors.map(formatError).join("\n  ")}`,
+    );
+  }
+  const verified = after.entries.find((e) => e.kind === "table" && e.name === table.name) as
+    | TableEntry
+    | undefined;
+  const expectId = col === table.idColumn ? String(inferValue(value).value) : id;
+  const verifiedRow = verified?.data[expectId];
+  if (!verifiedRow || (col !== table.idColumn && !(col in verifiedRow))) {
+    fail(`改写后无法按 ${table.name}.${id}.${col} 定位，已放弃（文件未修改）`);
+  }
+
   fs.writeFileSync(abs, newSource, "utf8");
-  appendOp(abs, {
-    op: "update",
-    actor: actorOf(flags),
-    target: name,
-    hash: hashOf(value),
-    prev_hash: hashOf(entry.valueRaw),
-    text: `set ${name} = ${value}`,
-  });
-  process.stdout.write(`${name} = ${value}\n`);
+  const label = `${table.name}.${id}.${col}`;
+  if (journalEnabled(flags)) {
+    appendOp(abs, {
+      op: "update",
+      actor: actorOf(flags),
+      target: label,
+      hash: hashOf(value),
+      prev_hash: hashOf(source.slice(from, to)),
+      text: `set ${label} = ${value}`,
+    });
+  }
+  process.stdout.write(`${label} = ${value}\n`);
 }
 
 function cmdAdd(pos: string[], flags: Record<string, string | boolean>): void {
@@ -230,15 +393,22 @@ function cmdAdd(pos: string[], flags: Record<string, string | boolean>): void {
   if (value.includes("\n")) fail("add 暂不支持多行值");
   const typeAttr = typeof flags.type === "string" ? ` type=${flags.type}` : "";
   const snippet = `\n<!--@var ${name}${typeAttr}-->${value}<!--@/var-->\n`;
-  fs.appendFileSync(abs, snippet, "utf8");
-  appendOp(abs, {
-    op: "create",
-    actor: actorOf(flags),
-    target: name,
-    hash: hashOf(value),
-    prev_hash: null,
-    text: `add ${name} = ${value}`,
-  });
+  const newSource = source + snippet;
+  const after = parse(newSource);
+  if (after.errors.length > 0) {
+    fail(`新增会使文档校验失败，已放弃（文件未修改）：\n  ${after.errors.map(formatError).join("\n  ")}`);
+  }
+  fs.writeFileSync(abs, newSource, "utf8");
+  if (journalEnabled(flags)) {
+    appendOp(abs, {
+      op: "create",
+      actor: actorOf(flags),
+      target: name,
+      hash: hashOf(value),
+      prev_hash: null,
+      text: `add ${name} = ${value}`,
+    });
+  }
   process.stdout.write(`已新增 ${name} = ${value}\n`);
 }
 
@@ -311,8 +481,40 @@ function cmdLog(pos: string[], flags: Record<string, string | boolean>): void {
   process.stdout.write("已记录\n");
 }
 
-function cmdInit(pos: string[]): void {
-  const dir = pos[0] ? path.resolve(pos[0]) : process.cwd();
+/** 新文档骨架：本身就是合法的 .mc（mc validate 必须通过） */
+const SKELETON = [
+  "# 文档标题",
+  "",
+  "> 摘要：什么情况下该读本文档、什么情况下该改本文档。",
+  "",
+  "## 小节标题",
+  "",
+  "连接超时：<!--@var TIMEOUT_MS-->3000<!--@/var--> 毫秒",
+  "",
+  "<!--@table ITEMS-->",
+  "| id | 值 | 说明 |",
+  "| --- | --- | --- |",
+  "| item-a | 1 | 示例行；第一列固定为 id，逐行唯一 |",
+  "<!--@/table-->",
+  "",
+  "> 想**展示**标记本身（写示例）时必须放进围栏代码块，直接写在正文里会被当成真配置：",
+  "",
+  "```text",
+  "<!--@var NAME-->值<!--@/var-->",
+  "```",
+  "",
+].join("\n");
+
+function cmdInit(pos: string[], flags: Record<string, string | boolean>): void {
+  const arg = pos[0];
+  if (arg && /\.mc$/i.test(arg)) {
+    const target = path.resolve(arg);
+    if (fs.existsSync(target) && !flags.force) fail(`文件已存在: ${arg}（覆盖请加 --force）`);
+    fs.writeFileSync(target, SKELETON, "utf8");
+    process.stdout.write(`已生成骨架: ${arg}\n`);
+    return;
+  }
+  const dir = arg ? path.resolve(arg) : process.cwd();
   const jdir = path.join(dir, ".mc");
   fs.mkdirSync(jdir, { recursive: true });
   const jf = path.join(jdir, "journal.jsonl");
@@ -366,7 +568,7 @@ function main(): void {
       cmdLog(pos, flags);
       break;
     case "init":
-      cmdInit(pos);
+      cmdInit(pos, flags);
       break;
     case "version":
     case "--version":

@@ -2,8 +2,8 @@
 
 import * as path from "path";
 import * as vscode from "vscode";
-import { allComments } from "@markdownconfig/core";
-import type { JournalOp } from "@markdownconfig/core";
+import { allComments } from "markdownconfig";
+import type { JournalOp } from "markdownconfig";
 
 export class McCommentNode {
   constructor(

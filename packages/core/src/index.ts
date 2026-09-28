@@ -14,6 +14,7 @@ import {
   prevHash,
   readOps,
 } from "./journal";
+import { scanMarkers, tokenize } from "./markers";
 import { parse } from "./scanner";
 import { parseTable } from "./table";
 
@@ -58,7 +59,9 @@ export {
   parseTable,
   prevHash,
   readOps,
+  scanMarkers,
   sortKeys,
+  tokenize,
 };
 export type {
   ArrayEntry,
@@ -69,7 +72,10 @@ export type {
   McError,
   ParseResult,
   RangeEntry,
+  TableCellPos,
   TableEntry,
+  TableRowPos,
   VarEntry,
   VarResolvedType,
 } from "./types";
+export type { InlineIssue, InlineRegion, MarkerKind, MarkerToken, ScanResult } from "./markers";

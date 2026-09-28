@@ -4,7 +4,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
-import { appendOp, buildConfig, findJournalDir, parse, readOps } from "@markdownconfig/core";
+import { appendOp, buildConfig, findJournalDir, parse, readOps } from "markdownconfig";
 import { diffPaths, isMcFile, summarizeTextDiff } from "./pure";
 
 interface FileState {

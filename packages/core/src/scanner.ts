@@ -1,6 +1,6 @@
 /** 扫描器：从 .mc 文本中提取配置条目（@var / @array / @table）、块结构与错误 */
 
-import { inferValue, parseArrayValue, parseRangeValue } from "./infer";
+import { scanMarkers } from "./markers";
 import { parseTable } from "./table";
 import type {
   ArrayEntry,
@@ -12,9 +12,6 @@ import type {
   VarEntry,
 } from "./types";
 
-// 统一匹配 @var / @array / @range 的开始与结束（结束捕获 kind，用于校验开闭配对）
-const BLOCK_RE =
-  /<!--@(var|array|range)\s+([A-Za-z_][\w.-]*)(?:\s+type=([A-Za-z]+))?\s*-->|<!--@\/(var|array|range)-->/g;
 const TABLE_OPEN_RE = /^\s*<!--@table\s+([A-Za-z_][\w.-]*)\s*-->\s*$/;
 // 宽松识别 table 开始（名字可能非法），用于把"表名非法"直接指到病根（#2）
 const TABLE_OPEN_LOOSE_RE = /^\s*<!--@table\s+(.+?)\s*-->\s*$/;
@@ -79,7 +76,7 @@ export function parse(source: string): ParseResult {
   };
 
   // ---- Pass 1：定位 @table 区域（独占一行的开闭标记），暂不解析 ----
-  const regions: TableRegion[] = [];
+  const tableRegions: TableRegion[] = [];
   const tableStack: Array<{ name: string; openLine: number; invalid?: boolean }> = [];
   for (let i = 0; i < lines.length; i++) {
     if (inFence(i, fences)) continue;
@@ -110,7 +107,7 @@ export function parse(source: string): ParseResult {
         errors.push({ line: i + 1, message: "@table 关闭标记缺少对应的开始标记" });
         continue;
       }
-      if (!top.invalid) regions.push({ name: top.name, openLine: top.openLine, closeLine: i });
+      if (!top.invalid) tableRegions.push({ name: top.name, openLine: top.openLine, closeLine: i });
     }
   }
   for (const t of tableStack) {
@@ -118,149 +115,109 @@ export function parse(source: string): ParseResult {
   }
 
   const inTableRegion = (line: number): boolean => {
-    for (const r of regions) if (line >= r.openLine && line <= r.closeLine) return true;
+    for (const r of tableRegions) if (line >= r.openLine && line <= r.closeLine) return true;
     return false;
   };
 
-  // ---- Pass 2：扫描顶层 @var / @array（跳过围栏与表格区域，表格内联标记归表格）----
-  const blockSpans: Array<[number, number]> = [];
-  const stack: Array<{
-    kind: "var" | "array" | "range";
-    name: string;
-    declaredType?: string;
-    markerEnd: number;
-    line: number;
-  }> = [];
-  let m: RegExpExecArray | null;
-  BLOCK_RE.lastIndex = 0;
-  while ((m = BLOCK_RE.exec(source)) !== null) {
-    const line = lineAt(m.index);
-    if (inFence(line - 1, fences)) continue;
-    if (inTableRegion(line - 1)) continue; // 表格内的内联标记，不做顶层条目
+  // ---- Pass 2：扫描顶层值块（跳过围栏与表格区域；表格内联标记归表格）----
+  //   @array 可嵌套 @array，由 markers.scanMarkers 统一做配对与递归解析
+  const { regions: valueRegions, issues } = scanMarkers(source);
+  const skipAt = (off: number): boolean => {
+    const line = lineAt(off) - 1;
+    return inFence(line, fences) || inTableRegion(line);
+  };
 
-    if (m[1] !== undefined) {
-      // open
-      const kind = m[1] as "var" | "array" | "range";
-      if (stack.length > 0) {
-        errors.push({
-          line,
-          message: `@${kind} 嵌套：${m[2]} 出现在 ${stack[stack.length - 1].name} 内部`,
-        });
-      }
-      stack.push({
-        kind,
-        name: m[2],
-        declaredType: m[3],
-        markerEnd: m.index + m[0].length,
-        line,
-      });
-    } else {
-      // close
-      const closeKind = m[4] as "var" | "array" | "range";
-      const top = stack.pop();
-      if (!top) {
-        errors.push({ line, message: `@${closeKind} 关闭标记缺少对应的开始标记` });
-        continue;
-      }
-      if (top.kind !== closeKind) {
-        errors.push({
-          line,
-          message: `@${top.kind} ${top.name} 的关闭标记错配（应为 <!--@/${top.kind}-->）`,
-        });
-        continue;
-      }
-      const valueRaw = source.slice(top.markerEnd, m.index);
-      try {
-        if (top.kind === "var") {
-          if (
-            valueRaw.includes("\n") &&
-            top.declaredType !== "json" &&
-            top.declaredType !== "text"
-          ) {
-            errors.push({
-              line: top.line,
-              message: `@var ${top.name} 的值含换行，需声明 type=json 或 type=text`,
-            });
-            continue;
-          }
-          const { value, type } = inferValue(valueRaw, top.declaredType);
-          const entry: VarEntry = {
-            kind: "var",
-            name: top.name,
-            declaredType: top.declaredType,
-            type: type as VarEntry["type"],
-            value,
-            valueRaw: valueRaw.trim(),
-            line: top.line,
-            valueStart: top.markerEnd,
-            valueEnd: m.index,
-          };
-          entries.push(entry);
-        } else if (top.kind === "array") {
-          // array：换行仅作空白（元素按 / 分隔）
-          const { value } = parseArrayValue(valueRaw, top.declaredType);
-          const entry: ArrayEntry = {
-            kind: "array",
-            name: top.name,
-            declaredType: top.declaredType,
-            type: "array",
-            value,
-            valueRaw: valueRaw.trim(),
-            line: top.line,
-            valueStart: top.markerEnd,
-            valueEnd: m.index,
-          };
-          entries.push(entry);
-        } else {
-          // range：必须单行，形如 1~5
-          if (valueRaw.includes("\n")) {
-            errors.push({ line: top.line, message: `@range ${top.name} 必须写在一行（形如 1~5）` });
-            continue;
-          }
-          const { value } = parseRangeValue(valueRaw);
-          const entry: RangeEntry = {
-            kind: "range",
-            name: top.name,
-            declaredType: undefined,
-            type: "range",
-            value,
-            valueRaw: valueRaw.trim(),
-            line: top.line,
-            valueStart: top.markerEnd,
-            valueEnd: m.index,
-          };
-          entries.push(entry);
-        }
-        blockSpans.push([top.line - 1, line - 1]);
-      } catch (e) {
-        errors.push({ line: top.line, message: `@${top.kind} ${top.name}: ${(e as Error).message}` });
-      }
-    }
+  for (const iss of issues) {
+    if (skipAt(iss.at)) continue;
+    errors.push({ line: lineAt(iss.at), message: iss.message, hint: iss.hint });
   }
-  for (const t of stack) {
-    errors.push({ line: t.line, message: `@${t.kind} ${t.name} 未闭合` });
+
+  const blockSpans: Array<[number, number]> = [];
+  for (const r of valueRegions) {
+    if (skipAt(r.start)) continue;
+    const line = lineAt(r.start);
+    if (!r.ident) {
+      errors.push({
+        line,
+        message: "顶层 @array 必须命名（无名 @array 只能出现在另一个 @array 内部）",
+      });
+      continue;
+    }
+    blockSpans.push([line - 1, lineAt(r.end) - 1]);
+    if (r.kind === "var") {
+      const entry: VarEntry = {
+        kind: "var",
+        name: r.ident,
+        declaredType: r.declared,
+        type: r.type as VarEntry["type"],
+        value: r.value,
+        valueRaw: source.slice(r.contentStart, r.contentEnd).trim(),
+        line,
+        valueStart: r.contentStart,
+        valueEnd: r.contentEnd,
+      };
+      entries.push(entry);
+    } else if (r.kind === "array") {
+      const entry: ArrayEntry = {
+        kind: "array",
+        name: r.ident,
+        declaredType: r.declared,
+        type: "array",
+        value: r.value as unknown[],
+        valueRaw: source.slice(r.contentStart, r.contentEnd).trim(),
+        line,
+        valueStart: r.contentStart,
+        valueEnd: r.contentEnd,
+      };
+      entries.push(entry);
+    } else {
+      const entry: RangeEntry = {
+        kind: "range",
+        name: r.ident,
+        declaredType: undefined,
+        type: "range",
+        value: r.value as { min: number; max: number },
+        valueRaw: source.slice(r.contentStart, r.contentEnd).trim(),
+        line,
+        valueStart: r.contentStart,
+        valueEnd: r.contentEnd,
+      };
+      entries.push(entry);
+    }
   }
 
   // ---- Pass 3：表格互斥校验 + 解析（含单元格内联标记）----
-  for (const r of regions) {
-    if (inSpan(r.openLine, blockSpans) || inSpan(r.closeLine, blockSpans)) {
+  for (const t of tableRegions) {
+    if (inSpan(t.openLine, blockSpans) || inSpan(t.closeLine, blockSpans)) {
       errors.push({
-        line: r.openLine + 1,
+        line: t.openLine + 1,
         message: "@table 标记不允许出现在 @var/@array 值内",
       });
       continue;
     }
-    const body = lines.slice(r.openLine + 1, r.closeLine);
-    if (body.filter((l) => l.trim() !== "").length === 0) {
-      errors.push({ line: r.openLine + 1, message: `表格 ${r.name} 内容为空` });
+    const bodyStart = lineStarts[t.openLine + 1] ?? source.length;
+    const body = source.slice(bodyStart, lineStarts[t.closeLine] ?? source.length);
+    if (body.trim() === "") {
+      errors.push({ line: t.openLine + 1, message: `表格 ${t.name} 内容为空` });
       continue;
     }
-    const parsed = parseTable(body);
+    const parsed = parseTable(body, bodyStart, t.openLine + 2);
     if (parsed.error) {
-      errors.push({ line: r.openLine + 1, message: `表格 ${r.name}: ${parsed.error}` });
+      errors.push({
+        line: parsed.errorLine ?? t.openLine + 1,
+        message: `表格 ${t.name}: ${parsed.error}`,
+      });
       continue;
     }
-    entries.push({ kind: "table", name: r.name, rows: parsed.rows, line: r.openLine + 1 });
+    entries.push({
+      kind: "table",
+      name: t.name,
+      idColumn: parsed.idColumn,
+      data: parsed.data,
+      positions: parsed.positions,
+      line: t.openLine + 1,
+      bodyLines: [parsed.headerLine, parsed.lastLine],
+    });
   }
 
   // 错误按 行+消息 去重（#6：同一错误曾被打印两遍）
