@@ -1,7 +1,7 @@
 {
   "name": "markdownconfig-vscode",
   "displayName": "MarkdownConfig",
-  "description": ".mc 文件预览与编辑：config 值蓝色高亮、hover 显示变量名、锚定评论、人工编辑留痕",
+  "description": ".mc 文件预览与编辑：config 值蓝色高亮、hover 显示变量名、锚定评论、文档模式预览编辑",
   "version": "0.6.0",
   "publisher": "markdownconfig",
   "engines": {
@@ -139,8 +139,9 @@
     }
   },
   "scripts": {
-    "build": "npm --prefix ../core run build && tsc -p ./ && node scripts/bundle.mjs && node scripts/bundle-webview.mjs",
-    "test": "npm run build && node --test"
+    "build": "npm run clean && npm --prefix ../core run build && tsc -p ./ && node scripts/bundle.mjs && node scripts/bundle-webview.mjs",
+    "test": "npm run build && node --test",
+    "clean": "node -e \"require('fs').rmSync('out',{recursive:true,force:true})\""
   },
   "dependencies": {
     "markdown-it": "^14.1.0",
