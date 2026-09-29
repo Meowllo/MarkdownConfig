@@ -1,16 +1,15 @@
 #!/usr/bin/env node
 /** mc CLI：MarkdownConfig 命令行工具 */
 
-import * as crypto from "crypto";
 import * as fs from "fs";
 import * as path from "path";
 import { appendComment, removeCommentAt } from "./comments";
 import { buildConfig, canonicalJson, declaredOrderJson } from "./config";
+import { makeFingerprint } from "./fingerprint";
 import { inferValue } from "./infer";
 import { parse } from "./scanner";
 import type { McError, ParseResult, TableEntry, VarEntry } from "./types";
-
-const VERSION = "0.6.0";
+import { VERSION } from "./version";
 
 const HELP = `MarkdownConfig CLI v${VERSION}
 
@@ -62,11 +61,6 @@ function load(file: string): { abs: string; source: string } {
   return { abs, source: fs.readFileSync(abs, "utf8") };
 }
 
-/** 文件字节的 sha256（hex）—— 下游可直接用 shasum -a 256 复算 */
-function sha256File(abs: string): string {
-  return crypto.createHash("sha256").update(fs.readFileSync(abs)).digest("hex");
-}
-
 /** 错误输出：message 一行，hint 另起一行缩进（把常见误用直接指向真因） */
 function formatError(e: McError): string {
   return e.hint ? `${e.line}: ${e.message}\n     提示：${e.hint}` : `${e.line}: ${e.message}`;
@@ -101,16 +95,8 @@ function cmdExport(pos: string[], flags: Record<string, string | boolean>): void
   }
   let outConfig: Record<string, unknown> = config;
   if (flags.fingerprint) {
-    const fp: Record<string, unknown> = {
-      source: path.basename(abs),
-      // 源文本指纹：sha256(JSON.stringify(源文本))，不是文件字节
-      sha256: hashOfSource(source),
-      // 文件字节指纹：改注释也算变，可用 shasum -a 256 复算
-      sha256File: sha256File(abs),
-      mcVersion: VERSION,
-    };
-    // generatedAt 会破坏字节稳定：需要可复现输出时加 --no-timestamp
-    if (!flags["no-timestamp"]) fp.generatedAt = new Date().toISOString();
+    // 与 SDK 的 McDoc.fingerprint() 共用同一实现（见 fingerprint.ts），两处哈希必须一致
+    const fp = makeFingerprint(abs, source, { timestamp: !flags["no-timestamp"] });
     outConfig = { $fingerprint: fp, ...config };
   }
   const out =
@@ -234,11 +220,6 @@ function cmdTables(pos: string[], flags: Record<string, string | boolean>): void
     }
   }
   process.stdout.write(lines.join("\n") + "\n");
-}
-
-/** 源文本指纹：sha256(JSON.stringify(源文本))。（注意：不是文件字节，见 SPEC §7） */
-function hashOfSource(source: string): string {
-  return crypto.createHash("sha256").update(JSON.stringify(source)).digest("hex");
 }
 
 function cmdSet(pos: string[], flags: Record<string, string | boolean>): void {

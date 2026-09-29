@@ -34,28 +34,29 @@ description: 介绍并使用 MarkdownConfig（.mc）文件类型 ——Markdown 
 
 ## 获取 mc 命令行工具（本地未安装时）
 
-`mc` 是操作 .mc 的命令行。**不要自己手写解析器**。工具通过 GitHub Release 分发（需要 Node.js 18+；网络受限时为终端配置代理）。
+`mc` 是操作 .mc 的命令行。**不要自己手写解析器，也不要把 `mc export` 的 JSON 结构写进下游业务代码**（详见 [references/sdk.md](references/sdk.md)）。需要 Node.js 18+；网络受限时为终端配置代理。
 
-> **用固定版本 URL，不要用 latest**：npx 按 URL 缓存，latest 更新后本地不会自动刷新；固定版本还保证读取可复现、可追溯。下例以 `v0.6.0` 为准，升级时把版本号整体替换。
-
-* **首选，零安装**：用 npx 直接运行官方 tgz（首次自动下载、之后走缓存）：
+* **首选，零安装**：直接用 npx 跑 npm registry 上的官方包（固定版本号，保证可复现）：
 
 ```
-npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig.tgz export app.mc
+npx -y markdownconfig@0.6.0 export app.mc
 ```
 
-后续命令同理，把 `mc ...` 换成 `npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig.tgz ...`。
+* **或全局安装**：`npm install -g markdownconfig@0.6.0`，之后直接用 `mc`。
 
-* **或全局安装**：`npm install -g https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig.tgz`，之后直接用 `mc`。
+* **程序里直接用（JS / TS）**：装进项目 `npm i markdownconfig`，然后 `import { open, emitTsModule } from "markdownconfig"`。**这是下游读配置的推荐通路**，见 [references/sdk.md](references/sdk.md)。
 
 * **升级（重要）**：包名在历史版本间变动过（0.1/0.2 为 `markdownconfig`、0.3.0 为 `@markdownconfig/core`，**0.3.1 起固定为 `markdownconfig` 不再变更**）。从旧版升级先卸载再装，避免 bin 冲突：
-  `npm rm -g markdownconfig @markdownconfig/core 2>/dev/null; npm i -g <上面的固定版本 tgz>`。
+  `npm rm -g markdownconfig @markdownconfig/core 2>/dev/null; npm i -g markdownconfig@0.6.0`。
+
+* **离线 / 受限环境**（构建插件里 PATH 窄、没有 npm registry 通路）：改用 Release 的固定版本 tgz ——
+  `npm i -g https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig.tgz`，或零安装 `npx -y <该 URL> export app.mc`。
 
 * **Python 程序直接读配置**：`pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig-py.tar.gz`（库在读取时经 npx 自动调用同一版本 CLI，无需单独安装，见下文）。
 
 * **VS Code 编辑器**：从 Release 下载 `markdownconfig-vscode.vsix`，扩展面板 → Install from VSIX。
 
-* 确实要始终跟最新：把 `download/v0.6.0` 换成 `latest/download`，但需加 `--prefer-online`，或升级后 `npm cache clean --force`。
+* 确实要始终跟最新：用 `npx -y markdownconfig@latest`，或把 tgz 里的 `download/v0.6.0` 换成 `latest/download`（后者需加 `--prefer-online`，或升级后 `npm cache clean --force`）。
 
 * 以上都不可用时（无 Node / 无网络）：.mc 仍是纯文本，可按 [references/syntax.md](references/syntax.md) 的标记规则人工 / 自行解析，但应优先获取官方工具以保证 canonical 输出一致。
 
@@ -141,15 +142,28 @@ mc add app.mc feature.newFlag true  # 新增变量
 
 ## 作为程序配置源
 
+**读取逻辑由工具提供，不要自己写"JSON → 代码"这一步** —— 否则工具以后调整导出形状，下游就得改项目代码。按下面的优先顺序选通路：
 
+1. **JS / TS：用 SDK**（首选）
 
-* 通用方式：`mc export app.mc` 得到标准 JSON，任何语言都能读 JSON；或脚本里 shell 调用。
+```ts
+import { open } from "markdownconfig";
 
-* Node：`npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig.tgz export` 后 `JSON.parse`。
+const doc = open("app.mc");
+for (const r of doc.rows("T_FRAMEWORK")) use(r.key, r.value);   // 行对象数组，形状跨版本稳定
+doc.cell("T_FRAMEWORK", "skillSlots", "value");
+doc.value("server.port");
+```
 
-* Python：`pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig-py.tar.gz`，然后 `from markdownconfig import load_config; cfg = load_config("app.mc")`（也可用 `get/comments/validate`；库在读取时经 npx 自动调用同一版本 CLI，无需单独安装，也可用环境变量 `MC_CLI` 指定本地 CLI）。
+   要点：`rows()` 永远是"行对象数组（含 id 列）"，`value()` 支持 `server.port` 这种路径；缺表/缺 id/缺列会**直接报错并列出可选值**，不静默兜底。完整用法（含把配置生成成 TS 代码的 `emitTsModule`）见 [references/sdk.md](references/sdk.md)。
 
-* 设计目标是像 JSON 一样跨语言通用：**canonical JSON 是第一公民**，各语言只做薄封装。
+2. **要把配置生成进源码**（游戏 / 小程序等运行时不读文件的场景）：用 SDK 的 `emitTsModule` 产出确定性代码，仍**不要手拼字符串**。见 [references/sdk.md](references/sdk.md)。
+
+3. **Python**：`pip install <Release 的 markdownconfig-py.tar.gz>`，然后 `from markdownconfig import load_config; cfg = load_config("app.mc")`（也可用 `get/comments/validate`；库在读取时经 npx 自动调用同一版本 CLI，也可用环境变量 `MC_CLI` 指定本地 CLI）。
+
+4. **其它语言 / 最通用兜底**：`mc export app.mc` 得到标准 JSON。
+
+**设计目标是像 JSON 一样跨语言通用**：canonical JSON 是跨语言的契约；但**同语言（JS/TS）请走 SDK**，让形状兼容由工具负责。
 
 ## 将现有 .md 转换为 .mc
 
@@ -200,13 +214,15 @@ mc add app.mc feature.newFlag true  # 新增变量
 
 * 来源指纹：`mc export app.mc --fingerprint` 在顶层加 `$fingerprint`（source / sha256 / sha256File / mcVersion / generatedAt）；`sha256` 是**源文本**的哈希，`sha256File` 是**文件字节**的哈希（可直接 `shasum -a 256` 复算），`generatedAt` 会破坏字节稳定（要可复现就加 `--no-timestamp`）。下游忽略 `$` 前缀键。
 
-完整语法、类型规则与错误表见 [references/syntax.md](references/syntax.md)；完整命令与参数见 [references/cli.md](references/cli.md)。
+完整语法、类型规则与错误表见 [references/syntax.md](references/syntax.md)；完整命令与参数见 [references/cli.md](references/cli.md)；**JS/TS 程序读取与代码生成见 [references/sdk.md](references/sdk.md)**。
 
 ## 常见坑
 
 
 
 * 不手写解析器；不重写原文（转换只插标记，保留段落、顺序、措辞）。
+
+* **不要把 `mc export` 的 JSON 结构写进下游业务代码** —— 那是序列化契约，形状会随语法演进。JS/TS 请用 SDK 的 `rows()` / `cell()` / `value()`，跨版本不用改代码。
 
 * 表格开闭标记必须各占一行；表格内的变量/数组用**单元格内联标记**（见语法速查），不要把顶层 @var/@array 跨在表格区域上。
 

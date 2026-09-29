@@ -1,25 +1,73 @@
 {
   "name": "markdownconfig",
   "version": "0.6.0",
-  "description": "MarkdownConfig 核心：解析 .mc（Markdown 版本的配置源）、导出 JSON、评论与就地编辑",
+  "description": "Markdown 版本的配置源：解析 .mc 文档、导出 JSON、稳定读取层与代码生成。人类照常阅读，程序当作配置读取。",
+  "keywords": [
+    "markdown",
+    "config",
+    "configuration",
+    "markdownconfig",
+    "codegen",
+    "sdk",
+    "cli"
+  ],
+  "license": "MIT",
+  "author": "Meowllo",
+  "homepage": "https://github.com/Meowllo/MarkdownConfig#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Meowllo/MarkdownConfig.git",
+    "directory": "packages/core"
+  },
+  "bugs": {
+    "url": "https://github.com/Meowllo/MarkdownConfig/issues"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
     "mc": "dist/cli.js"
   },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./reader": {
+      "types": "./dist/reader.d.ts",
+      "default": "./dist/reader.js"
+    },
+    "./codegen": {
+      "types": "./dist/codegen.d.ts",
+      "default": "./dist/codegen.js"
+    },
+    "./scanner": {
+      "types": "./dist/scanner.d.ts",
+      "default": "./dist/scanner.js"
+    },
+    "./markers": {
+      "types": "./dist/markers.d.ts",
+      "default": "./dist/markers.js"
+    },
+    "./table": {
+      "types": "./dist/table.d.ts",
+      "default": "./dist/table.js"
+    },
+    "./package.json": "./package.json",
+    "./dist/*": "./dist/*"
+  },
   "files": [
     "dist"
   ],
-  "scripts": {
-    "build": "tsc",
-    "test": "npm run build && node --test"
+  "engines": {
+    "node": ">=18"
   },
-  "keywords": [
-    "markdown",
-    "config",
-    "markdownconfig"
-  ],
-  "license": "MIT",
+  "sideEffects": false,
+  "scripts": {
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc",
+    "test": "npm run build && node --test",
+    "prepublishOnly": "npm test"
+  },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "typescript": "^5.4.0"

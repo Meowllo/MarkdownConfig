@@ -8,7 +8,16 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { buildConfig, canonicalJson, parse } from "../dist/index.js";
+import {
+  buildConfig,
+  canonicalJson,
+  emitTsModule,
+  fromSource,
+  McConfigError,
+  open,
+  parse,
+  VERSION,
+} from "../dist/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixtures = path.join(__dirname, "fixtures");
@@ -391,5 +400,140 @@ test("mc export --fingerprint：sha256=源文本、sha256File=文件字节，--n
   assert.equal(fp.sha256, crypto.createHash("sha256").update(JSON.stringify(source)).digest("hex"));
   assert.equal(fp.sha256File, crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex"));
   assert.equal(fp.generatedAt, undefined);
+
+  // SDK 的指纹必须与 CLI 逐字节一致（共用 fingerprint.ts 单点实现）
+  const sdkFp = open(file).fingerprint({ timestamp: false });
+  assert.deepEqual(sdkFp, fp);
   fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+// ---------------------------------------------------------------------------
+// 稳定读取层（reader.ts）—— 形状稳定承诺：导出格式再变，下游代码不动
+// ---------------------------------------------------------------------------
+
+const READER_SRC = [
+  "# 框架数值",
+  "",
+  "<!--@table T_FRAMEWORK-->",
+  "| key | value | 单位 |",
+  "| --- | --- | --- |",
+  "| skillSlots | 4 | 格 |",
+  "| equipSlots | 4 | 格 |",
+  "<!--@/table-->",
+  "",
+  "超时：<!--@var server.timeoutMs type=int-->3000<!--@/var-->",
+  "",
+  "<!--@table EMPTY-->",
+  "| id | a | b |",
+  "| --- | --- | --- |",
+  "<!--@/table-->",
+  "",
+].join("\n");
+
+test("reader：rows() 是形状稳定的行对象数组（含 id 列、键序=文档列序）", () => {
+  const doc = fromSource(READER_SRC);
+  const t = doc.table("T_FRAMEWORK");
+  assert.equal(t.idColumn, "key");
+  assert.deepEqual(t.columns, ["key", "value", "单位"]);
+  assert.deepEqual(t.ids, ["skillSlots", "equipSlots"]);
+  assert.deepEqual(t.rows, [
+    { key: "skillSlots", value: 4, 单位: "格" },
+    { key: "equipSlots", value: 4, 单位: "格" },
+  ]);
+  // 键序必须与 columns 一致（含 id 列在首位）
+  assert.deepEqual(Object.keys(t.rows[0]), t.columns);
+
+  // 0.4 时代的下游写法（逐行取 r.<列名>）必须仍然可用 —— 这是稳定承诺的核心
+  const fw = {};
+  for (const r of doc.rows("T_FRAMEWORK")) fw[r.key] = r.value;
+  assert.deepEqual(fw, { skillSlots: 4, equipSlots: 4 });
+
+  // 而原始序列化形状（逃生口）仍是 id→对象：证明隔离层确实在起作用
+  assert.deepEqual(doc.raw.T_FRAMEWORK, {
+    skillSlots: { value: 4, 单位: "格" },
+    equipSlots: { value: 4, 单位: "格" },
+  });
+});
+
+test("reader：value() 支持点号路径，且字面名优先（表名可含点）", () => {
+  const doc = fromSource(READER_SRC);
+  assert.equal(doc.value("server.timeoutMs"), 3000);
+  assert.equal(doc.value("server"), doc.raw.server);
+  assert.ok(doc.value("T_FRAMEWORK"));
+
+  // 字面名含点：表名 `db.pools` 优先于「db → pools」下钻
+  const dotted = fromSource(
+    ["<!--@table db.pools-->", "| id | v |", "| --- | --- |", "| a | 1 |", "<!--@/table-->", ""].join("\n"),
+  );
+  assert.equal(dotted.table("db.pools").idColumn, "id");
+});
+
+test("reader：缺表 / 缺 id / 缺列 一律 fail loud 并给出可选值", () => {
+  const doc = fromSource(READER_SRC);
+  const cases = [
+    () => doc.rows("NOPE"),
+    () => doc.row("T_FRAMEWORK", "zzz"),
+    () => doc.cell("T_FRAMEWORK", "skillSlots", "nope"),
+    () => doc.value("nope.nope"),
+  ];
+  for (const f of cases) {
+    assert.throws(f, McConfigError);
+  }
+  assert.throws(() => doc.rows("NOPE"), /已标记的表：T_FRAMEWORK, EMPTY/);
+  assert.throws(() => doc.row("T_FRAMEWORK", "zzz"), /现有 id：skillSlots, equipSlots/);
+  assert.throws(() => doc.cell("T_FRAMEWORK", "skillSlots", "nope"), /可选列：key, value, 单位/);
+});
+
+test("reader：空表只给表头也能报出列名；row/cell/ids 一致", () => {
+  const doc = fromSource(READER_SRC);
+  const e = doc.table("EMPTY");
+  assert.deepEqual(e.columns, ["id", "a", "b"]);
+  assert.deepEqual(e.ids, []);
+  assert.deepEqual(e.rows, []);
+  assert.equal(doc.cell("T_FRAMEWORK", "equipSlots", "value"), 4);
+  assert.equal(doc.ok, true);
+  assert.deepEqual(doc.allErrors, []);
+});
+
+// ---------------------------------------------------------------------------
+// 声明式发射器（codegen.ts）
+// ---------------------------------------------------------------------------
+
+const EMIT_OPTS = {
+  title: "x.gen.ts —— 自动生成，不要手改。",
+  source: "doc.mc",
+  generator: "scripts/gen.mjs",
+  consts: [
+    { name: "MAX_WEAPONS", value: 4, doc: "技能格数" },
+    { name: "ARMOR", value: { drPerLevel: 120 } },
+    { name: "COLS", value: ["a", "b"] },
+    { name: "RAW", literal: "{\n    a: 1,\n} as const", doc: ["多行", "第二行"] },
+  ],
+};
+
+test("codegen：确定性输出 + 指纹常量 + 保守类型推断", () => {
+  const fp = fromSource(READER_SRC).fingerprint({ timestamp: false });
+  const text = emitTsModule({ ...EMIT_OPTS, fingerprint: fp });
+  assert.equal(text, emitTsModule({ ...EMIT_OPTS, fingerprint: fp }), "同样输入必须逐字节相同");
+  assert.match(text, /export const SOURCE_SHA256 = "[0-9a-f]{64}";/);
+  assert.match(text, /export const SOURCE_MC_VERSION = "0\.6\.0";/);
+  assert.match(text, /export const MAX_WEAPONS = 4;/);
+  assert.match(text, /export const COLS: string\[\] = \["a","b"\];/);
+  assert.match(text, /export const ARMOR = \{"drPerLevel":120\};/);
+  assert.ok(text.endsWith("} as const;\n"), "末尾恰好一个换行");
+  assert.ok(!text.includes("generatedAt"), "确定性输出不得含时间戳");
+});
+
+test("codegen：非法标识符 / value 与 literal 冲突 / 两者皆缺 → 报错", () => {
+  assert.throws(() => emitTsModule({ consts: [{ name: "bad name", value: 1 }] }), /不是合法的 JS 标识符/);
+  assert.throws(
+    () => emitTsModule({ consts: [{ name: "X", value: 1, literal: "1" }] }),
+    /value 与 literal 只能给一个/,
+  );
+  assert.throws(() => emitTsModule({ consts: [{ name: "X" }] }), /必须给出 value 或 literal/);
+});
+
+test("版号单点：SDK 的 VERSION 与 package.json 一致", () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+  assert.equal(VERSION, pkg.version, "version.ts 与 package.json 版号漂移了");
 });

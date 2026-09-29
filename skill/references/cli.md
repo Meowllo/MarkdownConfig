@@ -4,17 +4,20 @@
 
 ## 安装
 
-工具通过 GitHub Release 分发（需要 Node.js 18+；网络受限时为终端配置代理）。**用固定版本 URL（不要用 latest，npx 会缓存导致升级不生效）**，下例为 v0.5.0：
+需要 Node.js 18+；网络受限时为终端配置代理。
 
-- 零安装运行（首次自动下载官方 tgz、之后走缓存）：
+- **零安装运行**（npm registry，固定版本保证可复现）：
 
   ```bash
-  npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig.tgz <command>
+  npx -y markdownconfig@0.6.0 <command>
   ```
 
-- 全局安装：`npm install -g https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig.tgz`，之后直接用 `mc`。
+- 全局安装：`npm install -g markdownconfig@0.6.0`，之后直接用 `mc`。
 - 升级（包名在 0.3.0 曾为 `@markdownconfig/core`，0.3.1 起固定为 `markdownconfig`）：先 `npm rm -g markdownconfig @markdownconfig/core 2>/dev/null` 再安装，避免 bin 冲突。
-- Python 库（程序内直接读 .mc，读取时经 npx 自动调用同一版本 CLI）：`pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig-py.tar.gz`。
+- **JS / TS 程序内读取**：`npm i markdownconfig`，用 SDK（`open()` → `McDoc`），见 [sdk.md](sdk.md)。**这是同语言读取的推荐通路**。
+- **离线 / 受限环境**（PATH 窄、无 registry 通路）：改用 Release 固定版本 tgz ——
+  `npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig.tgz <command>`，或 `npm i -g <该 URL>`。
+- Python 库（读取时经 npx 自动调用同一版本 CLI）：`pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig-py.tar.gz`。
 - VS Code 编辑器：Release 下载 `markdownconfig-vscode.vsix` → Install from VSIX。
 - 源码仓库：https://github.com/Meowllo/MarkdownConfig
 
@@ -89,7 +92,20 @@ mc set app.mc server.port 9000     # 2. 按意见修改
 mc resolve app.mc 1                # 3. 删除（解决）对应评论
 ```
 
-**程序读取（Python 示例）**：
+**程序读取（JS / TS，推荐）**：
+
+```ts
+import { open } from "markdownconfig";            // npm i markdownconfig
+
+const doc = open("app.mc");
+doc.value("server.port");                         // 8080（支持点号路径）
+doc.cell("METRICS", "cpu", "阈值");                // 80
+doc.rows("METRICS");                              // 行对象数组（含 id 列），形状跨版本稳定
+```
+
+缺表 / 缺 id / 缺列会**抛 `McConfigError` 并列出可选值**，不静默兜底。完整用法见 [sdk.md](sdk.md)。
+
+**非 JS 语言的程序读取（Python 示例）**：
 
 ```python
 from markdownconfig import load_config
@@ -102,7 +118,8 @@ print(cfg["METRICS"]["cpu"]["阈值"])
 
 - 正文是唯一真相：值、说明、评论都在 `.mc` 里，**没有任何审计文件**。改动历史用 git 看（`git log -p app.mc`、`git blame`）。
 - canonical JSON（键排序、2 空格）是跨语言一致性的基准；导出结果应可被任意语言的 JSON 解析器直接消费。
-- `$fingerprint.sha256` 是**源文本**的哈希（`sha256(JSON.stringify(源文本))`），`sha256File` 才是**文件字节**的哈希；`generatedAt` 破坏字节稳定，要可复现输出用 `--no-timestamp`。
+- **导出形状会随语法演进**（例如表格在 v0.5.0 由"对象数组"改为 `{id: {其余列}}`）。所以**不要把导出结构写进下游业务代码**；JS/TS 走 SDK 的稳定读取层，其它语言请把形状适配集中在一个薄层里。
+- `$fingerprint.sha256` 是**源文本**的哈希（`sha256(JSON.stringify(源文本))`）；`sha256File` 才是**文件字节**的哈希（可直接 `shasum -a 256` 复算），且只在文档由文件读出时才有。`generatedAt` 破坏字节稳定，要可复现输出用 `--no-timestamp`。
 - 想让配置级的差异在 `git diff` 里直接可读，可配一个 textconv（只影响显示，不影响合并）：
 
   ```bash
