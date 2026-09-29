@@ -130,7 +130,7 @@ test("assignBlockId：多个独立块 id 递增唯一", () => {
 });
 
 test("range：高亮 / hover / 选中锚定", () => {
-  const src = "攻击：<!--@range AttackRange-->1~5<!--@/range-->\n";
+  const src = "超时：<!--@range TimeoutRange-->1~5<!--@/range-->\n";
   const values = computeHighlights(src).filter((r) => r.kind === "value");
   assert.equal(values.length, 1);
   assert.equal(src.slice(values[0].start, values[0].end), "1~5");
@@ -138,10 +138,10 @@ test("range：高亮 / hover / 选中锚定", () => {
   const idx = src.indexOf("1~5") + 1;
   const info = hoverAt(src, idx);
   assert.ok(info);
-  assert.equal(info.name, "AttackRange");
+  assert.equal(info.name, "TimeoutRange");
   assert.equal(info.type, "range");
   assert.equal(info.value, JSON.stringify({ min: 1, max: 5 }));
 
   const t = findTargetForSelection(src, src.indexOf("1~5"), src.indexOf("1~5") + 3);
-  assert.equal(t.target, "AttackRange");
+  assert.equal(t.target, "TimeoutRange");
 });

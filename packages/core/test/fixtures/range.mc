@@ -1,6 +1,6 @@
 # range 与单元格三态
 
-攻击范围：<!--@range AttackRange-->1~5<!--@/range-->
+超时区间：<!--@range TimeoutRange-->1~5<!--@/range-->
 
 全角区间：<!--@range Wide-->1～10<!--@/range-->
 

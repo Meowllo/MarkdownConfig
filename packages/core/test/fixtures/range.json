@@ -1,8 +1,4 @@
 {
-  "AttackRange": {
-    "max": 5,
-    "min": 1
-  },
   "T_CELL": {
     "a": {
       "val": 2
@@ -22,6 +18,10 @@
     "d": {
       "val": "普通文本"
     }
+  },
+  "TimeoutRange": {
+    "max": 5,
+    "min": 1
   },
   "Wide": {
     "max": 10,

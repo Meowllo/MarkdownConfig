@@ -136,8 +136,8 @@ export const SOURCE_SHA256 = "cacc2ba1…";
 /** 生成时用的 mc 版本 —— 便于发现「生成物是旧版工具产出的」 */
 export const SOURCE_MC_VERSION = "0.6.0";
 
-/** 局内技能格数 */
-export const MAX_WEAPONS = 4;
+/** 最大槽位数 */
+export const MAX_SLOTS = 4;
 ```
 
 `ConstDecl` 字段：

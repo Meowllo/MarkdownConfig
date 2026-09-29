@@ -150,8 +150,8 @@ mc add app.mc feature.newFlag true  # 新增变量
 import { open } from "markdownconfig";
 
 const doc = open("app.mc");
-for (const r of doc.rows("T_FRAMEWORK")) use(r.key, r.value);   // 行对象数组，形状跨版本稳定
-doc.cell("T_FRAMEWORK", "skillSlots", "value");
+for (const r of doc.rows("T_LIMITS")) use(r.key, r.value);   // 行对象数组，形状跨版本稳定
+doc.cell("T_LIMITS", "maxWorkers", "value");
 doc.value("server.port");
 ```
 
@@ -196,7 +196,7 @@ doc.value("server.port");
 嵌套数组：<!--@array A-->1/2/<!--@array B-->3/4<!--@/array--><!--@/array-->
    ↑ 无名嵌套 → 裸子数组；具名嵌套 → 对象元素：A = [1, 2, { "B": [3, 4] }]
 
-区间：<!--@range AttackRange-->1~5<!--@/range-->（读出 {min,max}；支持全角 ～；必须单行）
+区间：<!--@range TimeoutRange-->1~5<!--@/range-->（读出 {min,max}；支持全角 ～；必须单行）
 
 评论（放在文档末尾的「评论」区块，标记隐藏、文本可见）：
 <!--@comment target=变量名或表.id.列或块id-->评论文本<!--@/comment-->

@@ -238,7 +238,7 @@ test("@range：1~5 / 全角～ / bold / 非法与换行 fail loud", () => {
 });
 
 test("#2 非 ASCII 表名直接报错，且关闭标记不再误报缺少开始", () => {
-  const src = "<!--@table T_护甲-->\n| a |\n| --- |\n| 1 |\n<!--@/table-->\n";
+  const src = "<!--@table T_表名-->\n| a |\n| --- |\n| 1 |\n<!--@/table-->\n";
   const res = parse(src);
   assert.ok(res.errors.some((e) => /表名.*非法/.test(e.message)));
   assert.equal(res.errors.filter((e) => /缺少对应的开始/.test(e.message)).length, 0);
@@ -309,13 +309,13 @@ test("@array 嵌套：无名 → 裸子数组；有名 → 对象元素", () => 
       "<!--@table T-->",
       "| id | 可选 |",
       "| --- | --- |",
-      "| ring | 暴击伤害/攻击速度/<!--@array-->近战/远程/法术<!--@/array--> |",
+      "| basic | 名称/版本/<!--@array-->格式甲/格式乙/格式丙<!--@/array--> |",
       "<!--@/table-->",
     ].join("\n"),
   );
   assert.equal(cell.errors.length, 0);
   const t = cell.entries.find((e) => e.name === "T");
-  assert.deepEqual(t.kind === "table" && t.data.ring.可选, ["暴击伤害", "攻击速度", ["近战", "远程", "法术"]]);
+  assert.deepEqual(t.kind === "table" && t.data.basic.可选, ["名称", "版本", ["格式甲", "格式乙", "格式丙"]]);
 });
 
 test("@array 嵌套：非数组嵌套 / 重名 / 顶层无名 → fail loud", () => {
@@ -332,7 +332,7 @@ test("@array 嵌套：非数组嵌套 / 重名 / 顶层无名 → fail loud", ()
 });
 
 test("#14 正文里的标记：报错附带「示例要放围栏」的提示", () => {
-  const res = parse("# t\n\n> 例 `…<!--@/range--> 护甲区间`。\n");
+  const res = parse("# t\n\n> 例 `…<!--@/range--> 超时区间`。\n");
   const withHint = res.errors.find((e) => e.hint);
   assert.ok(withHint, "应给出 hint");
   assert.match(withHint.hint, /围栏/);
@@ -354,7 +354,7 @@ test("mc set 表格单元格：按 id 命中唯一格，改写后复校验，不
       "<!--@table T-->",
       "| key | value | 说明 |",
       "| --- | --- | --- |",
-      "| slots | 4 | 技能格数 |",
+      "| slots | 4 | 最大槽位数 |",
       "<!--@/table-->",
       "",
     ].join("\n"),
@@ -366,7 +366,7 @@ test("mc set 表格单元格：按 id 命中唯一格，改写后复校验，不
   assert.equal(run(["get", file, "T.slots.value"]).trim(), "4");
   assert.equal(run(["set", file, "T.slots.value", "6"]).trim(), "T.slots.value = 6");
   assert.equal(run(["get", file, "T.slots.value"]).trim(), "6");
-  assert.match(fs.readFileSync(file, "utf8"), /\| slots \| 6 \| 技能格数 \|/);
+  assert.match(fs.readFileSync(file, "utf8"), /\| slots \| 6 \| 最大槽位数 \|/);
   assert.deepEqual(fs.readdirSync(tmp), ["t.mc"], "改写只动这一个文件，不产生 .mc/ 等额外产物");
 
   // 目标 id 不存在 → 定位失败，且报错说明可用 id
@@ -412,13 +412,13 @@ test("mc export --fingerprint：sha256=源文本、sha256File=文件字节，--n
 // ---------------------------------------------------------------------------
 
 const READER_SRC = [
-  "# 框架数值",
+  "# 限额数值",
   "",
-  "<!--@table T_FRAMEWORK-->",
+  "<!--@table T_LIMITS-->",
   "| key | value | 单位 |",
   "| --- | --- | --- |",
-  "| skillSlots | 4 | 格 |",
-  "| equipSlots | 4 | 格 |",
+  "| maxWorkers | 4 | 个 |",
+  "| maxQueues | 4 | 个 |",
   "<!--@/table-->",
   "",
   "超时：<!--@var server.timeoutMs type=int-->3000<!--@/var-->",
@@ -432,26 +432,26 @@ const READER_SRC = [
 
 test("reader：rows() 是形状稳定的行对象数组（含 id 列、键序=文档列序）", () => {
   const doc = fromSource(READER_SRC);
-  const t = doc.table("T_FRAMEWORK");
+  const t = doc.table("T_LIMITS");
   assert.equal(t.idColumn, "key");
   assert.deepEqual(t.columns, ["key", "value", "单位"]);
-  assert.deepEqual(t.ids, ["skillSlots", "equipSlots"]);
+  assert.deepEqual(t.ids, ["maxWorkers", "maxQueues"]);
   assert.deepEqual(t.rows, [
-    { key: "skillSlots", value: 4, 单位: "格" },
-    { key: "equipSlots", value: 4, 单位: "格" },
+    { key: "maxWorkers", value: 4, 单位: "个" },
+    { key: "maxQueues", value: 4, 单位: "个" },
   ]);
   // 键序必须与 columns 一致（含 id 列在首位）
   assert.deepEqual(Object.keys(t.rows[0]), t.columns);
 
   // 0.4 时代的下游写法（逐行取 r.<列名>）必须仍然可用 —— 这是稳定承诺的核心
   const fw = {};
-  for (const r of doc.rows("T_FRAMEWORK")) fw[r.key] = r.value;
-  assert.deepEqual(fw, { skillSlots: 4, equipSlots: 4 });
+  for (const r of doc.rows("T_LIMITS")) fw[r.key] = r.value;
+  assert.deepEqual(fw, { maxWorkers: 4, maxQueues: 4 });
 
   // 而原始序列化形状（逃生口）仍是 id→对象：证明隔离层确实在起作用
-  assert.deepEqual(doc.raw.T_FRAMEWORK, {
-    skillSlots: { value: 4, 单位: "格" },
-    equipSlots: { value: 4, 单位: "格" },
+  assert.deepEqual(doc.raw.T_LIMITS, {
+    maxWorkers: { value: 4, 单位: "个" },
+    maxQueues: { value: 4, 单位: "个" },
   });
 });
 
@@ -459,7 +459,7 @@ test("reader：value() 支持点号路径，且字面名优先（表名可含点
   const doc = fromSource(READER_SRC);
   assert.equal(doc.value("server.timeoutMs"), 3000);
   assert.equal(doc.value("server"), doc.raw.server);
-  assert.ok(doc.value("T_FRAMEWORK"));
+  assert.ok(doc.value("T_LIMITS"));
 
   // 字面名含点：表名 `db.pools` 优先于「db → pools」下钻
   const dotted = fromSource(
@@ -472,16 +472,16 @@ test("reader：缺表 / 缺 id / 缺列 一律 fail loud 并给出可选值", ()
   const doc = fromSource(READER_SRC);
   const cases = [
     () => doc.rows("NOPE"),
-    () => doc.row("T_FRAMEWORK", "zzz"),
-    () => doc.cell("T_FRAMEWORK", "skillSlots", "nope"),
+    () => doc.row("T_LIMITS", "zzz"),
+    () => doc.cell("T_LIMITS", "maxWorkers", "nope"),
     () => doc.value("nope.nope"),
   ];
   for (const f of cases) {
     assert.throws(f, McConfigError);
   }
-  assert.throws(() => doc.rows("NOPE"), /已标记的表：T_FRAMEWORK, EMPTY/);
-  assert.throws(() => doc.row("T_FRAMEWORK", "zzz"), /现有 id：skillSlots, equipSlots/);
-  assert.throws(() => doc.cell("T_FRAMEWORK", "skillSlots", "nope"), /可选列：key, value, 单位/);
+  assert.throws(() => doc.rows("NOPE"), /已标记的表：T_LIMITS, EMPTY/);
+  assert.throws(() => doc.row("T_LIMITS", "zzz"), /现有 id：maxWorkers, maxQueues/);
+  assert.throws(() => doc.cell("T_LIMITS", "maxWorkers", "nope"), /可选列：key, value, 单位/);
 });
 
 test("reader：空表只给表头也能报出列名；row/cell/ids 一致", () => {
@@ -490,7 +490,7 @@ test("reader：空表只给表头也能报出列名；row/cell/ids 一致", () =
   assert.deepEqual(e.columns, ["id", "a", "b"]);
   assert.deepEqual(e.ids, []);
   assert.deepEqual(e.rows, []);
-  assert.equal(doc.cell("T_FRAMEWORK", "equipSlots", "value"), 4);
+  assert.equal(doc.cell("T_LIMITS", "maxQueues", "value"), 4);
   assert.equal(doc.ok, true);
   assert.deepEqual(doc.allErrors, []);
 });
@@ -504,7 +504,7 @@ const EMIT_OPTS = {
   source: "doc.mc",
   generator: "scripts/gen.mjs",
   consts: [
-    { name: "MAX_WEAPONS", value: 4, doc: "技能格数" },
+    { name: "MAX_SLOTS", value: 4, doc: "最大槽位数" },
     { name: "ARMOR", value: { drPerLevel: 120 } },
     { name: "COLS", value: ["a", "b"] },
     { name: "RAW", literal: "{\n    a: 1,\n} as const", doc: ["多行", "第二行"] },
@@ -517,7 +517,7 @@ test("codegen：确定性输出 + 指纹常量 + 保守类型推断", () => {
   assert.equal(text, emitTsModule({ ...EMIT_OPTS, fingerprint: fp }), "同样输入必须逐字节相同");
   assert.match(text, /export const SOURCE_SHA256 = "[0-9a-f]{64}";/);
   assert.match(text, /export const SOURCE_MC_VERSION = "0\.6\.0";/);
-  assert.match(text, /export const MAX_WEAPONS = 4;/);
+  assert.match(text, /export const MAX_SLOTS = 4;/);
   assert.match(text, /export const COLS: string\[\] = \["a","b"\];/);
   assert.match(text, /export const ARMOR = \{"drPerLevel":120\};/);
   assert.ok(text.endsWith("} as const;\n"), "末尾恰好一个换行");

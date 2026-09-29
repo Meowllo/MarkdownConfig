@@ -53,8 +53,8 @@ test("preprocessForRender：多行值（type=text）不破坏", () => {
 });
 
 test("preprocessForRender：@range 标记 → 蓝色 span + 变量名", () => {
-  const out = preprocessForRender("攻击：<!--@range AttackRange-->1~5<!--@/range-->\n");
-  assert.ok(out.includes('<span class="mc-value" title="AttackRange">1~5</span>'));
+  const out = preprocessForRender("超时：<!--@range TimeoutRange-->1~5<!--@/range-->\n");
+  assert.ok(out.includes('<span class="mc-value" title="TimeoutRange">1~5</span>'));
   assert.ok(!out.includes("<!--@range"));
   assert.ok(!out.includes("<!--@/range-->"));
 });
