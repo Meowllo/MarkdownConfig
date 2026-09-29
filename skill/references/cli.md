@@ -14,6 +14,7 @@
 
 - 全局安装：`npm install -g markdownconfig@0.6.0`，之后直接用 `mc`。
 - 升级（包名在 0.3.0 曾为 `@markdownconfig/core`，0.3.1 起固定为 `markdownconfig`）：先 `npm rm -g markdownconfig @markdownconfig/core 2>/dev/null` 再安装，避免 bin 冲突。
+  ⚠️ **装完必须 `mc version` 核对**：留着旧版全局 `mc` 时它会被优先调用，于是新语法、新命令会莫名报错，而你看不出是"版本不对"。Python 库同理——它优先用 PATH 上的 `mc`，此时它内部的版本 pin 不生效。
 - **JS / TS 程序内读取**：`npm i markdownconfig`，用 SDK（`open()` → `McDoc`），见 [sdk.md](sdk.md)。**这是同语言读取的推荐通路**。
 - **离线 / 受限环境**（PATH 窄、无 registry 通路）：改用 Release 固定版本 tgz ——
   `npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig.tgz <command>`，或 `npm i -g <该 URL>`。

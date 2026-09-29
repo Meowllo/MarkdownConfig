@@ -47,7 +47,7 @@ npx -y markdownconfig@0.6.0 export app.mc
 * **程序里直接用（JS / TS）**：装进项目 `npm i markdownconfig`，然后 `import { open, emitTsModule } from "markdownconfig"`。**这是下游读配置的推荐通路**，见 [references/sdk.md](references/sdk.md)。
 
 * **升级（重要）**：包名在历史版本间变动过（0.1/0.2 为 `markdownconfig`、0.3.0 为 `@markdownconfig/core`，**0.3.1 起固定为 `markdownconfig` 不再变更**）。从旧版升级先卸载再装，避免 bin 冲突：
-  `npm rm -g markdownconfig @markdownconfig/core 2>/dev/null; npm i -g markdownconfig@0.6.0`。
+  `npm rm -g markdownconfig @markdownconfig/core 2>/dev/null; npm i -g markdownconfig@0.6.0`，然后 **`mc version` 核对结果**（留着旧版全局 `mc` 时它会被优先调用，新语法/新命令会莫名报错，而你看不出是版本不对）。
 
 * **离线 / 受限环境**（构建插件里 PATH 窄、没有 npm registry 通路）：改用 Release 的固定版本 tgz ——
   `npm i -g https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig.tgz`，或零安装 `npx -y <该 URL> export app.mc`。
