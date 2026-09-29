@@ -3,7 +3,7 @@
  *
  * ## 为什么存在
  * 下游原先这样产出配置模块：
- *   `L.push('export const MAX_WEAPONS = ' + MAX_WEAPONS + ';')`
+ *   `L.push('export const MAX_SLOTS = ' + MAX_SLOTS + ';')`
  * 手工拼字符串会丢引号转义、丢类型、丢注释、还会因拼接顺序不同产出不稳定字节。
  * 本模块把这件事变成**声明**：给名字 + 值 + 可选注释，输出确定性文本。
  *
@@ -39,7 +39,7 @@ export interface ConstDecl {
 export interface EmitOptions {
   /** 生成物的一句话说明 */
   title?: string;
-  /** 数据来源，如 `docs/装备设计.mc` */
+  /** 数据来源，如 `example.mc` */
   source?: string;
   /** 生成器脚本，如 `scripts/gen-equip-config.mjs` */
   generator?: string;

@@ -41,13 +41,13 @@ npm i https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdow
 ```ts
 import { open, McConfigError } from "markdownconfig";
 
-const doc = open("docs/装备设计.mc");        // 也可 fromSource(text, name) 用于内存内容
+const doc = open("example.mc");              // 也可 fromSource(text, name) 用于内存内容
 
-doc.rows("T_WEAPON");                        // 行对象数组（含 id 列、按文档列序）
-doc.row("T_WEAPON", "sword");                // 按 id 取一行
-doc.cell("T_WEAPON", "sword", "damage");     // 取一个格子
+doc.rows("T_ITEMS");                         // 行对象数组（含 id 列、按文档列序）
+doc.row("T_ITEMS", "alpha");                 // 按 id 取一行
+doc.cell("T_ITEMS", "alpha", "weight");      // 取一个格子
 doc.value("server.timeoutMs");               // 变量；支持点号路径，与 mc get 一致
-doc.table("T_WEAPON");                       // { idColumn, columns, ids, rows }
+doc.table("T_ITEMS");                        // { idColumn, columns, ids, rows }
 doc.tableNames();                            // 已标记的表名
 doc.comments;                                // 正文里的评论（target / text / line）
 doc.errors;                                  // 语法错误（不抛）
@@ -70,8 +70,8 @@ doc.raw;                                     // 原始序列化形状（逃生�
 举例：v0.5.0 把表格的**导出形状**从"对象数组"改成了 `{id: {其余列}}`，但 `rows()` 一直保持数组 —— 所以写成下面这样的下游代码**跨版本都不用改**：
 
 ```ts
-const fw = {};
-for (const r of doc.rows("T_FRAMEWORK")) fw[r.key] = r.value;   // r.key / r.value 始终可用
+const limits = {};
+for (const r of doc.rows("T_LIMITS")) limits[r.key] = r.value;   // r.key / r.value 始终可用
 ```
 
 **不要**用 `doc.raw` 或 `mc export` 的 JSON 去喂业务代码：那部分不享受承诺，形状变了就得改你的项目。
@@ -81,9 +81,9 @@ for (const r of doc.rows("T_FRAMEWORK")) fw[r.key] = r.value;   // r.key / r.val
 缺表 / 缺 id / 缺列 / 缺变量一律**抛 `McConfigError`**，消息里直接给可选值，不做静默兜底：
 
 ```
-未找到已标记的表 `T_WEAPON`。文档中已标记的表：T_ARMOR, T_ACCESSORY
-表 `T_WEAPON` 中不存在 id `sword`。现有 id：axe, bow, staff
-表 `T_WEAPON` 的 `axe` 行不存在列 `damage`。可选列：id, name, slots
+未找到已标记的表 `T_ITEMS`。文档中已标记的表：T_LIMITS, T_TAGS
+表 `T_ITEMS` 中不存在 id `alpha`。现有 id：alpha, beta
+表 `T_ITEMS` 的 `beta` 行不存在列 `cost`。可选列：id, weight, note
 ```
 
 `open()` / `fromSource()` 自身不因**语法**错误抛异常（错误在 `doc.errors` 里），由你决定策略；只有"你要的东西不存在"才抛。
@@ -94,38 +94,39 @@ for (const r of doc.rows("T_FRAMEWORK")) fw[r.key] = r.value;   // r.key / r.val
 
 ```js
 import { open, emitTsModule } from "markdownconfig";
+import { writeFileSync } from "node:fs";
 
-const doc = open("docs/局内成长设计.mc");
+const doc = open("example.mc");
 
 // 领域校验仍由你写（这是设计规则，不是胶水）
-const fw = {};
-for (const r of doc.rows("T_FRAMEWORK")) fw[r.key] = r.value;
-if (!Number.isInteger(fw.skillSlots)) throw new Error("skillSlots 必须是整数");
+const limits = {};
+for (const r of doc.rows("T_LIMITS")) limits[r.key] = r.value;
+if (!Number.isInteger(limits.maxSlots)) throw new Error("maxSlots 必须是整数");
 
 const text = emitTsModule({
-  title: "growthConfig.gen.ts —— 自动生成，不要手改。",
-  source: "docs/局内成长设计.mc",
-  generator: "scripts/gen-growth-config.mjs",
+  title: "config.gen.ts —— 自动生成，不要手改。",
+  source: "example.mc",
+  generator: "scripts/gen-config.mjs",
   fingerprint: doc.fingerprint({ timestamp: false }),   // → SOURCE_SHA256 / SOURCE_MC_VERSION
   consts: [
-    { name: "MAX_WEAPONS", value: fw.skillSlots, doc: "局内技能格数" },
-    { name: "ARMOR", value: { drPerLevel: fw.armorDrPerLevel } },
-    { name: "RARITY_WEIGHTS", value: weights, doc: ["每波档位权重", "行 = 第几个店"] },
+    { name: "MAX_SLOTS", value: limits.maxSlots, doc: "最大槽位数" },
+    { name: "RETRY", value: { base: limits.retryBase } },
+    { name: "TIER_WEIGHTS", value: weights, doc: ["各档位权重", "行 = 第几档"] },
     { name: "TABLE", literal: "{\n    a: 1,\n} as const" },   // 逃生口：多行 / as const
   ],
 });
 
-writeFileSync("assets/scripts/core/generated/growthConfig.gen.ts", text);
+writeFileSync("generated/config.gen.ts", text);
 ```
 
 输出形态：
 
 ```ts
 /**
- * growthConfig.gen.ts —— 自动生成，不要手改。
+ * config.gen.ts —— 自动生成，不要手改。
  *
- * 来源：`docs/局内成长设计.mc`
- * 生成器：`scripts/gen-growth-config.mjs`
+ * 来源：`example.mc`
+ * 生成器：`scripts/gen-config.mjs`
  *
  * 改数值 ⇒ 改 .mc，然后跑一次生成器；本文件是**派生物、不是第二个来源**。
  */

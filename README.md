@@ -168,16 +168,19 @@ doc.fingerprint({ timestamp: false });          // 来源指纹（与 mc export 
 ```ts
 import { open, emitTsModule } from "markdownconfig";
 
-const doc = open("docs/局内成长设计.mc");
-const fw = {};
-for (const r of doc.rows("T_FRAMEWORK")) fw[r.key] = r.value;   // 领域校验自己写
+const doc = open("example.mc");
+
+// 领域校验自己写（这是业务规则，不是胶水）
+const limits = {};
+for (const r of doc.rows("T_LIMITS")) limits[r.key] = r.value;
+if (!Number.isInteger(limits.maxSlots)) throw new Error("maxSlots 必须是整数");
 
 const text = emitTsModule({
-  title: "growthConfig.gen.ts —— 自动生成，不要手改。",
-  source: "docs/局内成长设计.mc",
-  generator: "scripts/gen-growth-config.mjs",
+  title: "config.gen.ts —— 自动生成，不要手改。",
+  source: "example.mc",
+  generator: "scripts/gen-config.mjs",
   fingerprint: doc.fingerprint({ timestamp: false }),           // → SOURCE_SHA256 / SOURCE_MC_VERSION
-  consts: [{ name: "MAX_WEAPONS", value: fw.skillSlots, doc: "局内技能格数" }],
+  consts: [{ name: "MAX_SLOTS", value: limits.maxSlots, doc: "最大槽位数" }],
 });
 ```
 

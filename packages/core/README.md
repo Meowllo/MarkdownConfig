@@ -13,16 +13,16 @@ npm i markdownconfig
 // SDK：读取走稳定读取层（表永远是"行对象数组"，导出格式变更不影响下游代码）
 import { open, emitTsModule } from "markdownconfig";
 
-const doc = open("docs/局内成长设计.mc");     // 或 fromSource(text) 用于内存内容
-for (const r of doc.rows("T_FRAMEWORK")) use(r.key, r.value);
-doc.cell("T_FRAMEWORK", "skillSlots", "value");
+const doc = open("example.mc");               // 或 fromSource(text) 用于内存内容
+for (const r of doc.rows("T_LIMITS")) use(r.key, r.value);
+doc.cell("T_LIMITS", "maxSlots", "value");
 doc.value("server.port");                     // 支持点号路径
 
 // 把配置生成进源码（游戏 / 小程序等运行时不读文件）：确定性输出，可用 --check 做门禁
 const text = emitTsModule({
-  source: "docs/局内成长设计.mc",
+  source: "example.mc",
   fingerprint: doc.fingerprint({ timestamp: false }),
-  consts: [{ name: "MAX_WEAPONS", value: 4, doc: "技能格数" }],
+  consts: [{ name: "MAX_SLOTS", value: 4, doc: "最大槽位数" }],
 });
 ```
 
