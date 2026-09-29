@@ -1,7 +1,0 @@
-.vscode/**
-src/**
-test/**
-scripts/**
-node_modules/**
-out/**/*.js.map
-**/*.map

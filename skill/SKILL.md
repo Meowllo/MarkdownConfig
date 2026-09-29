@@ -34,31 +34,20 @@ description: 介绍并使用 MarkdownConfig（.mc）文件类型 ——Markdown 
 
 ## 获取 mc 命令行工具（本地未安装时）
 
-`mc` 是操作 .mc 的命令行。**不要自己手写解析器，也不要把 `mc export` 的 JSON 结构写进下游业务代码**（详见 [references/sdk.md](references/sdk.md)）。需要 Node.js 18+；网络受限时为终端配置代理。
+`mc` 是操作 .mc 的命令行。**不要自己手写解析器，也不要把 `mc export` 的 JSON 结构写进下游业务代码**（详见 [references/sdk.md](references/sdk.md)）。需要 Node.js 18+。
 
-* **首选，零安装**：直接用 npx 跑 npm registry 上的官方包（固定版本号，保证可复现）：
+**只有一个渠道：npm**（SDK 与 `mc` CLI 是同一个包，装一次两者都有、版本天然一致）：
 
 ```
-npx -y markdownconfig@0.6.0 export app.mc
+npm i markdownconfig
 ```
 
-* **或全局安装**：`npm install -g markdownconfig@0.6.0`，之后直接用 `mc`。
-
-* **程序里直接用（JS / TS）**：装进项目 `npm i markdownconfig`，然后 `import { open, emitTsModule } from "markdownconfig"`。**这是下游读配置的推荐通路**，见 [references/sdk.md](references/sdk.md)。
-
-* **升级（重要）**：包名在历史版本间变动过（0.1/0.2 为 `markdownconfig`、0.3.0 为 `@markdownconfig/core`，**0.3.1 起固定为 `markdownconfig` 不再变更**）。从旧版升级先卸载再装，避免 bin 冲突：
-  `npm rm -g markdownconfig @markdownconfig/core 2>/dev/null; npm i -g markdownconfig@0.6.0`，然后 **`mc version` 核对结果**（留着旧版全局 `mc` 时它会被优先调用，新语法/新命令会莫名报错，而你看不出是版本不对）。
-
-* **离线 / 受限环境**（构建插件里 PATH 窄、没有 npm registry 通路）：改用 Release 的固定版本 tgz ——
-  `npm i -g https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig.tgz`，或零安装 `npx -y <该 URL> export app.mc`。
-
-* **Python 程序直接读配置**：`pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig-py.tar.gz`（库在读取时经 npx 自动调用同一版本 CLI，无需单独安装，见下文）。
-
-* **VS Code 编辑器**：从 Release 下载 `markdownconfig-vscode.vsix`，扩展面板 → Install from VSIX。
-
-* 确实要始终跟最新：用 `npx -y markdownconfig@latest`，或把 tgz 里的 `download/v0.6.0` 换成 `latest/download`（后者需加 `--prefer-online`，或升级后 `npm cache clean --force`）。
-
-* 以上都不可用时（无 Node / 无网络）：.mc 仍是纯文本，可按 [references/syntax.md](references/syntax.md) 的标记规则人工 / 自行解析，但应优先获取官方工具以保证 canonical 输出一致。
+* 之后 `npx mc <命令>` 即可（npx 解析到本项目的 `node_modules/.bin/mc`）。
+* 只想零安装地跑一次：`npx -y markdownconfig@latest <命令>`。
+* **升级**：`npm i markdownconfig@latest`。
+* 从 **0.3.0 之前**升级（那时包名是 `@markdownconfig/core`）：先 `npm rm -g markdownconfig @markdownconfig/core`（若曾全局装过）再装，并 **`npx mc version` 核对** —— 机器上留着旧版时会优先被调用，新语法/新命令会莫名报错，而你看不出是版本不对。
+* 程序里读取用 SDK：`import { open, emitTsModule } from "markdownconfig"`，见 [references/sdk.md](references/sdk.md)。
+* 完全无 Node / 无网络时：.mc 仍是纯文本，可按 [references/syntax.md](references/syntax.md) 的标记规则人工 / 自行解析，但应优先获取官方工具以保证 canonical 输出一致。
 
 ## 创建 .mc 文件
 
@@ -159,9 +148,7 @@ doc.value("server.port");
 
 2. **要把配置生成进源码**（游戏 / 小程序等运行时不读文件的场景）：用 SDK 的 `emitTsModule` 产出确定性代码，仍**不要手拼字符串**。见 [references/sdk.md](references/sdk.md)。
 
-3. **Python**：`pip install <Release 的 markdownconfig-py.tar.gz>`，然后 `from markdownconfig import load_config; cfg = load_config("app.mc")`（也可用 `get/comments/validate`；库在读取时经 npx 自动调用同一版本 CLI，也可用环境变量 `MC_CLI` 指定本地 CLI）。
-
-4. **其它语言 / 最通用兜底**：`mc export app.mc` 得到标准 JSON。
+3. **其它语言 / 最通用兜底**：`mc export app.mc` 得到标准 JSON（形状适配请收敛到一个薄层）。
 
 **设计目标是像 JSON 一样跨语言通用**：canonical JSON 是跨语言的契约；但**同语言（JS/TS）请走 SDK**，让形状兼容由工具负责。
 

@@ -1,6 +1,6 @@
 {
   "name": "markdownconfig",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Markdown 版本的配置源：解析 .mc 文档、导出 JSON、稳定读取层与代码生成。人类照常阅读，程序当作配置读取。",
   "keywords": [
     "markdown",

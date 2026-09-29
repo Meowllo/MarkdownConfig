@@ -1,4 +1,4 @@
-# .mc 语法速查（源自 MarkdownConfig SPEC v0.6.0）
+# .mc 语法速查（源自 MarkdownConfig SPEC v0.7.0）
 
 ## 文件与兼容性
 

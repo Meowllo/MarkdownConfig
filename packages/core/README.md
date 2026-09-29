@@ -27,11 +27,13 @@ const text = emitTsModule({
 ```
 
 ```bash
-# CLI（同一个包，同源实现）
-npx markdownconfig export app.mc            # 导出 canonical JSON
-npx markdownconfig get app.mc server.port   # 读单项
-npx markdownconfig validate app.mc          # 校验，出错带行号
+# CLI（同一个包，同源实现；npx 解析到本项目的 node_modules/.bin/mc）
+npx mc export app.mc            # 导出 canonical JSON
+npx mc get app.mc server.port   # 读单项
+npx mc validate app.mc          # 校验，出错带行号
 ```
+
+**SDK 与 CLI 是同一个包的两个入口**，装一次两者都有、版本天然一致 —— 不会出现"SDK 升了但 CLI 没升"。升级：`npm i markdownconfig@latest`。
 
 * 语法规范：[SPEC.md](https://github.com/Meowllo/MarkdownConfig/blob/main/SPEC.md)（唯一权威）
 * 完整 SDK 用法：[skill/references/sdk.md](https://github.com/Meowllo/MarkdownConfig/blob/main/skill/references/sdk.md)

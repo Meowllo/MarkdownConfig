@@ -1,9 +1,10 @@
-# MarkdownConfig (.mc) 语法规范 v0.6.0
+# MarkdownConfig (.mc) 语法规范 v0.7.0
 
 > 定位：**Markdown 版本的配置源**。程序按文档里声明的 config 运行，所以文档就是权威设计真相；相比 JSON/YAML 可读性更好，相比表格更自由（非结构化的自然语言描述也能直接当配置源）。
 > 人类照常书写阅读，Agent 可结构化读取 / 编辑，程序把文档当配置源读取。
 > 设计原则：**文本是真相（含评论），一切都在正文里**；**编译产物 = 标准 JSON**；**语法极小**。
-> **版本规则：全项目统一版号** —— CLI / SDK / Python 库 / VS Code 扩展 / Agent Skill / 本规范同号发布（本版 v0.6.0）。
+> **版本规则：全项目统一版号** —— 本 npm 包（SDK 与 CLI 是同一个包）/ Agent Skill / 本规范同号发布（本版 v0.7.0）。
+> **只提供 npm 一种安装方式**：`npm i markdownconfig` 同时得到 SDK 与 `mc` CLI，版本天然一致。
 > **变更留痕与版本控制交给 git**：`.mc` 不生成任何审计文件、快照或日志目录。
 
 ## 1. 文件与兼容性
@@ -218,7 +219,7 @@
   "source": "app.mc",
   "sha256": "<源文本指纹>",
   "sha256File": "<文件字节指纹>",
-  "mcVersion": "0.6.0",
+  "mcVersion": "0.7.0",
   "generatedAt": "<ISO 时间>"
 }
 ```
@@ -236,5 +237,6 @@
 * v0.4：新增区间标记 `@range`（`1~5` → `{min,max}`，支持全角 `～`、顶层与表格内联）；表格单元格改为三态——**单标记裸值、多标记对象、标记外尾巴=人读注释**（不报错、不丢数据）；修复非 ASCII 表名静默误配（#2）；错误按 `行:消息` 去重（#6）；新增 `mc tables`（#5）与 `mc export --fingerprint`（#4）。
 * v0.5.0：**表格第一列固定为 id 列**（非空、标量、逐行唯一），读出改为 `{ id: { 其余列 } }`（原为对象数组，破坏性变更，#13）；`mc set` 支持按 id 就地写入表格单元格（#12）；`@array` 支持嵌套（无名→裸子数组、有名→对象元素，#11；单元格内无名数组 → 整格为数组体）；关闭标记缺少开始标记的报错附「示例要放围栏」提示（#14）；指纹文档纠正并新增 `sha256File` 与 `--no-timestamp`（#10）；`mc init <file.mc>` 生成可校验通过的骨架；全项目版本统一为 v0.5.0。
 * v0.6.0：**评论搬进正文**——新增 `@comment` 标记与文档末尾的「评论」区块（`mc comment` append-only 追加、`mc resolve <序号>` 直接删除、可多条指向同一目标、不进配置），**删除全部审计功能**：不再有 `.mc/` 目录、`journal.jsonl`、`state.json` 快照、人类编辑 watcher、哈希链，以及 `mc journal` / `mc log` / `--no-journal` / `--actor` / `mc init [dir]` 命令；变更留痕与版本控制交给 git（**破坏性变更**）。定位明确为「Markdown 版本的配置源」。
-* v0.6.0（读取层，纯加法）：新增 **§7 稳定读取层与向后兼容承诺** —— SDK 的 `McDoc`（`rows()` 形状稳定、`value()` 支持点号路径、缺项 fail loud）与确定性代码生成器 `emitTsModule()`；**发布到 npm registry**（`npm i markdownconfig`）作为首选分发渠道，Release 固定版本 tgz 降为离线/受限环境的兜底；`sha256File` 明确为「仅文件读出时才有」（内存文档不写）。
+* v0.6.0（读取层，纯加法）：新增 **§7 稳定读取层与向后兼容承诺** —— SDK 的 `McDoc`（`rows()` 形状稳定、`value()` 支持点号路径、缺项 fail loud）与确定性代码生成器 `emitTsModule()`；**发布到 npm registry**（`npm i markdownconfig`）作为首选分发渠道；`sha256File` 明确为「仅文件读出时才有」（内存文档不写）。
+* v0.7.0（**语法与读取契约均无变化**）：把安装与升级收敛为**两步** —— ① Agent Skill 装到 `~/.agents/skills/markdownconfig`；② `npm i markdownconfig` 一条命令同时得到 SDK 与 `mc` CLI（二者本来就是同一个包的两个入口，不是新增耦合）。**只保留 npm 一种安装方式**，不再提供 Release tgz / 全局安装 / `pip` / VSIX 等并列渠道。范围收缩：Python 读取库移出并停止维护；VS Code 扩展移出为独立项目。因此"统一版号"的范围收窄为 **本 npm 包 / Agent Skill / 本规范**。
 

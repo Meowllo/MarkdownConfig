@@ -7,7 +7,8 @@
 * 文件后缀：`.mc`（与主流格式无冲突）
 * 语法规范：见 [SPEC.md](SPEC.md)（唯一权威）
 * 设计原则：**文本是真相（含评论），一切都在正文里**；**编译产物 = 标准 JSON**；**语法极小**
-* 版本与变更：全项目（CLI / SDK / Python 库 / VS Code 扩展 / Agent Skill / 规范）统一版号，当前 `v0.6.0`；**留痕与版本控制交给 git**（`.mc` 不生成任何审计文件或日志目录）
+* 版本与变更：**全项目统一版号** —— npm 包（SDK + CLI）/ Agent Skill / 规范同号，当前 `v0.7.0`；**留痕与版本控制交给 git**（`.mc` 不生成任何审计文件或日志目录）
+* 只提供 **一个 npm 包**（`markdownconfig`）：SDK 与 `mc` CLI 由同一个包提供，装一次两者都有、版本天然一致
 
 ## 一行示例
 
@@ -37,65 +38,72 @@ MarkdownConfig/
 ├── SPEC.md                  # 语法规范（唯一权威）
 ├── README.md                # 本文件
 ├── examples/                # 示例 .mc 文件
-├── packages/core/           # 核心：TypeScript SDK + mc CLI（单一事实实现）
+├── skill/                   # Agent Skill：教 Agent 如何用 .mc（含 JS/TS SDK 详细用法）
+├── packages/core/           # 唯一的包：TypeScript SDK + mc CLI（单一事实实现）
 │   ├── src/                 # markers（标记词法/嵌套）/ scanner / table / infer / config / comments
 │   │                        # reader（稳定读取层）/ codegen（代码生成）/ fingerprint / version / cli
 │   └── test/fixtures/       # 黄金语料（.mc + 期望 .json）
-├── packages/vscode/         # VS Code 扩展（高亮 / hover / 评论面板 / 文档模式预览编辑）
-├── python/markdownconfig/   # Python Tier-1 读取库（读取时经 npx 调 CLI；GitHub Release 分发）
-├── skill/                   # Agent Skill：教 Agent 如何用 .mc（含 JS/TS SDK 详细用法）
 ├── scripts/gen-golden.mjs   # 由参考实现重新生成黄金语料
-└── bin/mc                   # 仓库级 CLI 包装（把 bin 加入 PATH 即可用）
+└── bin/mc                   # 仓库级 CLI 包装（开发时把 bin 加入 PATH）
 ```
 
-## 快速开始
+> VS Code 扩展与 Python 读取库已**不再是本仓库的一部分**：扩展已独立出去单独维护（仓库地址待发布）；Python 库暂时不再维护。
 
-### 0. 直接安装（无需克隆）
+## 安装（两步）
 
-> **首选 npm registry**（固定版本号保证可复现，也可用 `^0.6.0` 接收补丁与小版本升级）。
-> 离线 / 受限环境（构建插件里 PATH 窄、无 registry 通路）改用 Release 的固定版本 tgz —— 把下面的 `markdownconfig@0.6.0` 换成 `https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig.tgz` 即可。
+需要 Node.js 18+。
 
+### 1. Agent 技能（让 Agent 会读写 `.mc`）
+
+```bash
+mkdir -p ~/.agents/skills/markdownconfig && curl -sSL https://github.com/Meowllo/MarkdownConfig/releases/download/v0.7.0/markdownconfig-skill.tar.gz | tar xz -C ~/.agents/skills/markdownconfig
 ```
-# JS / TS 程序内读取配置（需要 Node.js 18+）—— 下游读配置的推荐通路
+
+装到各主流 Agent 共用的技能目录 `~/.agents/skills/`。只有人用、不需要 Agent 时可以跳过这步。
+
+### 2. 工具（SDK + CLI）
+
+```bash
 npm i markdownconfig
-#   import { open, emitTsModule } from "markdownconfig";
-
-# CLI 免安装运行
-npx -y markdownconfig@0.6.0 export app.mc
-
-# CLI 全局安装
-npm install -g markdownconfig@0.6.0
-# 从旧版升级（0.3.0 时包名曾为 @markdownconfig/core，0.3.1 起固定为 markdownconfig，之后不再变更）：
-#   npm rm -g markdownconfig @markdownconfig/core 2>/dev/null
-#   npm i -g markdownconfig@0.6.0
-
-# Python 库（读取时经 npx 自动调用同一版本 CLI，无需单独安装）
-pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig-py.tar.gz
-
-# VS Code 扩展：Release 下载 markdownconfig-vscode.vsix → 扩展面板「从 VSIX 安装」
-
-# Agent Skill（给其他 Agent 用的 .mc 操作技能）：
-# 下载 markdownconfig-skill.tar.gz，解压到你的 Agent 技能目录（如 ~/.workbuddy/skills/）：
-#   mkdir -p <skills_dir>/markdownconfig && tar xzf markdownconfig-skill.tar.gz -C <skills_dir>/markdownconfig
 ```
 
-### 1. 构建核心（TypeScript）
+一条命令同时得到 SDK 与 `mc` CLI —— 它们是同一个包，所以**不会出现"SDK 升了但 CLI 没升"**：
+
+```ts
+import { open } from "markdownconfig";        // SDK：进程内读取，无需 CLI
+```
+
+```bash
+npx mc export app.mc                          # CLI：npx 解析到本地 node_modules/.bin/mc
+```
+
+### 升级
+
+重复上面两步即可：
+
+```bash
+npm i markdownconfig@latest      # SDK 与 CLI 一起更新
+```
+
+（技能包同理：重新下载并覆盖 `~/.agents/skills/markdownconfig`。技能里写着"用哪个版本的工具"，所以工具升级后技能也建议一起换。）
+
+* 从 **0.3.0 之前**升级：那时的包名是 `@markdownconfig/core`，先卸掉旧包再装，并 **`npx mc version` 核对结果** —— 机器上留着旧版时它可能被优先调用。
+* 破坏性变更与迁移说明见 [SPEC.md](SPEC.md) 的变更记录，以及各版本的 Release notes。
+
+## 从源码构建（开发用）
 
 ```
 cd packages/core
 npm install
 npm run build      # 产出 dist/（SDK + mc CLI）
-npm test           # 黄金语料 / 校验 / 类型 / 块扫描 / 嵌套数组 / 表格 / CLI 端到端
+npm test           # 黄金语料 / 校验 / 类型 / 块扫描 / 嵌套数组 / 表格 / 读取层 / CLI 端到端
 ```
 
-### 2. 使用 mc CLI
+仓库里开发时直接跑 CLI：
 
 ```
-# 方式一：把仓库 bin 加入 PATH
-export PATH="$PATH:<repo>/bin"
-
-# 方式二：直接用 node 运行
 node packages/core/dist/cli.js export examples/app.mc
+# 或把仓库 bin 加入 PATH：export PATH="$PATH:<repo>/bin"
 ```
 
 常用命令：
@@ -117,34 +125,11 @@ mc comments examples/app.mc               # 列出评论（带序号）
 mc resolve examples/app.mc 1              # 删除（解决）第 1 条评论
 ```
 
-### 3. Python 读取（Tier-1：读取时才跑 CLI）
-
-```
-import markdownconfig
-
-cfg = markdownconfig.load("examples/app.mc")
-
-print(cfg["server"]["port"])          # 8080
-print(cfg["METRICS"]["cpu"])          # {"指标": "cpu", "阈值": 80, "等级": "test"}
-print(cfg["METRICS"]["cpu"]["等级"])   # "test"
-```
-
-未把 `mc` 加入 PATH 时，用环境变量指定：
-
-```
-MC_CLI="node /path/to/packages/core/dist/cli.js" python3 your_program.py
-```
-
-### 4. JS / TS 读取（**下游读配置的推荐通路**）
+## JS / TS 读取（**下游读配置的推荐通路**）
 
 `markdownconfig` 是一个包两个入口（`mc` CLI + 同源 SDK）。**读取逻辑由工具定义**，下游不要把 `mc export` 的 JSON 结构写进业务代码 —— 那样导出形状一变就得改你的项目。
 
-#### 4.1 读：`McDoc`（形状稳定）
-
-```
-npm i markdownconfig
-```
-
+### 读：`McDoc`（形状稳定）
 ```ts
 import { open } from "markdownconfig";
 
@@ -161,7 +146,7 @@ doc.fingerprint({ timestamp: false });          // 来源指纹（与 mc export 
 * `rows()` 永远是"行对象数组、含 id 列"，因此 v0.5.0 那种导出形状变更**不影响下游代码**。
 * `doc.raw` 是原始序列化形状（逃生口），**不享受形状稳定承诺**。
 
-#### 4.2 写：`emitTsModule`（确定性代码生成）
+### 写：`emitTsModule`（确定性代码生成）
 
 游戏 / 小程序等运行时不读文件，需构建期把配置落成源码 —— 这一步也由工具做，不手写字符串拼接：
 
@@ -186,46 +171,31 @@ const text = emitTsModule({
 
 同输入产出**逐字节相同**的输出，可直接用 `--check` 做「产物是否过期」门禁。完整用法（含 `ConstDecl` 字段、错误处理、与 CLI 的对照、常见坑）见 [skill/references/sdk.md](skill/references/sdk.md)。
 
-### 5. VS Code 扩展
-
-把 `.mc` 识别为 Markdown（自带源码编辑 + 内置 Markdown 预览双模式），并补齐：
-
-- **config 值蓝色高亮**（主题无关）、标记灰色斜体
-- **hover** 显示变量名 / 类型 / 值，附「编辑值」「添加评论」入口
-- **评论面板**（活动栏 MarkdownConfig）：列出工作区所有评论（直接解析 `.mc` 正文的评论区），支持添加 / 删除 / 跳转目标；**选中文本可直接评论**，自动锚定到变量 / 表格 / 块 id，无 id 的段落或标题自动生成 `^b-N`
-- **导出配置 JSON**：编辑器标题栏按钮
-- **评论正文琥珀色高亮**：标记灰色、评论文字可见可读；改动历史交给 git，不再做保存留痕
-- **文档模式（预览中编辑）**：标题栏「文档模式」→ 侧栏 Webview 渲染面板；config 值蓝色标识、表格显示「配置表：NAME」标签、块 id 隐藏；悬停块右上角「编辑块」→ 就地编辑**原始 markdown（含标记）**
-
-安装方式一（VSIX，推荐）：从 Release 下载 `markdownconfig-vscode.vsix` → 扩展面板 `...` → 「从 VSIX 安装…」。
-
-安装方式二（开发调试）：在 `packages/vscode` 下按 `F5`。
-
-### 6. 测试
+## 测试
 
 ```
-cd packages/core && npm test                                  # core
-cd packages/vscode && npm test                                # 扩展（含 mock vscode 冒烟）
-MC_CLI="node <repo>/packages/core/dist/cli.js" python3 python/tests/test_mcpy.py   # Python 冒烟
-node scripts/gen-golden.mjs                                   # 重建黄金语料（改解析逻辑后必跑）
+cd packages/core && npm test        # 单测 + CLI 端到端
+node scripts/gen-golden.mjs         # 重建黄金语料（改解析逻辑后必跑）
 ```
 
-## 通用性（跨语言策略）
+## 跨语言策略
 
-* **Tier 0**：构建期 `mc export` 编译为 JSON，任何语言标准库读取，零成本。**形状适配应集中在一个薄层**（导出形状会随语法演进）。
-* **Tier 1（当前实现）**：语言侧薄封装 —— JS/TS 直接**进程内**调用 SDK（`open()` → `McDoc`，无需 CLI、零运行时依赖）；`python/markdownconfig` 读取时调用 CLI（经 npx 自动获取同一版本）。
-* **Tier 2（未来，按需）**：原生解析器移植（C/C++/Java/Go/Rust…），以黄金语料为一致性基准。
+`.mc` 与 `mc export` 输出的 canonical JSON 与语言无关，任何语言都能读。但**同语言优先走工具提供的读取通路**：
 
-**同语言优先走 SDK**：只有 JS/TS 能拿到"读取契约"（形状稳定 + `emitTsModule` 代码生成）。其它语言请把 JSON 形状适配收敛到一个薄层，别散进业务代码。
+* **JS / TS（本仓库）**：进程内调用 SDK（`open()` → `McDoc`），拿到**形状稳定的读取契约**与 `emitTsModule` 代码生成，不必自己解析 JSON。
+* **其它语言**：构建期 `mc export` 编译为 JSON 再由标准库读取；请把**形状适配收敛到一个薄层**（导出形状会随语法演进）。
+* 原生解析器移植（C/C++/Java/Go/Rust…）暂不提供，未来按需，以黄金语料为一致性基准。
+
+**为什么不要直接消费导出的 JSON 形状**：那是**序列化契约**，随语法演进（v0.5.0 就把表格从"对象数组"改成了 `{id: {其余列}}`，打挂过真实下游）。SDK 的 `rows()` 是**读取契约**，形状稳定。
 
 ## 路线图
 
 * [x] P0 语法规范 + 示例
-* [x] P1 核心 SDK + mc CLI + Python Tier-1 读取库 + 黄金语料
-* [x] P2 ToHuman：VS Code 扩展（高亮 / hover / 评论面板 / 导出 JSON / 文档模式预览编辑）
-* [x] P3 Skill：markdownconfig 技能文档，含 JS/TS SDK 详细用法
-* [x] 发布：GitHub 公开仓库 https://github.com/Meowllo/MarkdownConfig ；npm registry `markdownconfig`
+* [x] P1 核心 SDK + mc CLI + 黄金语料
+* [x] P2 Agent Skill：markdownconfig 技能文档，含 JS/TS SDK 详细用法
+* [x] P3 发布：GitHub 公开仓库 + npm registry `markdownconfig`
 * [x] v0.5.0：表格 id 列语义 + `mc set` 就地改格、`@array` 嵌套、报错指路、指纹补 `sha256File`
 * [x] v0.6.0：评论搬进正文（`@comment` + 文末评论区）、删除全部审计功能（`.mc/` 目录、快照、watcher、哈希链）—— 留痕交给 git
-* [x] v0.6.0（读取层，纯加法）：`McDoc` 稳定读取层 + `emitTsModule` 代码生成 + 发布 npm registry
+* [x] v0.6.0：`McDoc` 稳定读取层 + `emitTsModule` 代码生成
+* [x] v0.7.0：**安装收敛为两步**（Skill + 一条 npm 命令）；SDK 与 CLI 合并为一个包的两种入口；Python 库停止维护、VS Code 扩展独立出去
 * [ ] Obsidian 插件（已暂缓，后续按需排期）

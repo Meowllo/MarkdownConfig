@@ -516,7 +516,9 @@ test("codegen：确定性输出 + 指纹常量 + 保守类型推断", () => {
   const text = emitTsModule({ ...EMIT_OPTS, fingerprint: fp });
   assert.equal(text, emitTsModule({ ...EMIT_OPTS, fingerprint: fp }), "同样输入必须逐字节相同");
   assert.match(text, /export const SOURCE_SHA256 = "[0-9a-f]{64}";/);
-  assert.match(text, /export const SOURCE_MC_VERSION = "0\.6\.0";/);
+  // 版号不写死：指纹里带的必须就是 SDK 当前的 VERSION（升版号时这条不会再误伤）
+  assert.equal(fp.mcVersion, VERSION);
+  assert.ok(text.includes(`export const SOURCE_MC_VERSION = ${JSON.stringify(VERSION)};`));
   assert.match(text, /export const MAX_SLOTS = 4;/);
   assert.match(text, /export const COLS: string\[\] = \["a","b"\];/);
   assert.match(text, /export const ARMOR = \{"drPerLevel":120\};/);

@@ -1,19 +1,11 @@
 node_modules/
 dist/
-__pycache__/
-*.pyc
 .DS_Store
 
 # 项目内部开发过程文档（方案/计划、工作规范、工作记录）：不入库、不随发布物分发
 .agent/
 .workbuddy/
 
-# 构建/打包产物
-*.egg-info/
-.stage/
-.release-staging/
-packages/vscode/out/
-packages/markdownconfig/README.md
+# 发布产物（本地打包后上传 Release，不入库）
 *.tgz
 *.tar.gz
-*.vsix

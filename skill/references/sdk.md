@@ -17,23 +17,20 @@ import { open, emitTsModule } from "markdownconfig";
 | Agent 查 / 改文档、人工校验 | **CLI** | 零依赖、可复制粘贴、改动留给 git |
 | 程序在运行时读配置（Node / 构建脚本 / 编辑器插件） | **SDK** | 不 spawn 进程、不经过 JSON 字符串往返、**拿到形状稳定承诺** |
 | 把配置生成进源码（游戏 / 小程序等读不了文件的运行时） | **SDK + `emitTsModule`** | 走我们的读取与发射逻辑，不手写字符串拼接 |
-| 非 JS 语言 | CLI（或各自的薄封装，如 Python 库） | canonical JSON 是跨语言契约 |
+| 非 JS 语言 | CLI（`mc export` 出的 JSON） | canonical JSON 是跨语言契约 |
 
 **关键区别**：CLI 的 `export` 输出是**序列化契约**（形状随语法演进），SDK 的 `McDoc` 是**稳定读取层**。下游代码应当依赖后者。
 
 ## 安装
 
 ```bash
-# 首选：npm registry（可写 ^0.6.0 这类范围，跟随补丁/小版本升级）
 npm i markdownconfig
-
-# 离线 / 受限环境（构建插件里 PATH 窄、没网）：固定版本 URL
-npm i https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig.tgz
 ```
 
 * 需要 Node.js 18+；包**没有任何运行时依赖**（只用 Node 内置模块），可被 esbuild / rollup 直接打包。
-* 装到项目里（`npm i`，不是 `npm i -g`）才能 `import`；`-g` 装的是 `mc` 命令。
-* 只想跑 CLI：`npx markdownconfig export app.mc`。
+* **SDK 与 `mc` CLI 是同一个包**：装一次两者都有，版本天然一致（不会出现"SDK 升了 CLI 没升"）。装到项目里即可 `import`，`npx mc` 也能用。
+* 升级：`npm i markdownconfig@latest`。
+* 只想跑 CLI：`npx mc export app.mc`。
 * 子路径导出：`markdownconfig`（主入口）、`markdownconfig/reader`、`markdownconfig/codegen`、`markdownconfig/scanner`、`markdownconfig/table`、`markdownconfig/markers`。
 
 ## 读取：`McDoc`
@@ -134,7 +131,7 @@ writeFileSync("generated/config.gen.ts", text);
 /** 来源指纹（源文本的 sha256）—— 离线门禁用它核对「生成物是否过期」 */
 export const SOURCE_SHA256 = "cacc2ba1…";
 /** 生成时用的 mc 版本 —— 便于发现「生成物是旧版工具产出的」 */
-export const SOURCE_MC_VERSION = "0.6.0";
+export const SOURCE_MC_VERSION = "0.7.0";
 
 /** 最大槽位数 */
 export const MAX_SLOTS = 4;
@@ -178,7 +175,7 @@ if (cur !== text) { console.error("产物与 .mc 不一致，跑一次生成器"
 ## 常见坑
 
 * **别把 `mc export` 的 JSON 结构写进业务代码**。要读就用 `rows()` / `cell()` / `value()`；导出形状只在跨语言场景下才需要关心。
-* **别自己找 CLI**。SDK 不需要 CLI；只有非 JS 语言才需要（Python 库已内置查找逻辑）。
+* **别自己找 CLI**。SDK 不需要 CLI（进程内直读）；只有非 JS 语言才需要走 `mc export`。
 * **内存内容用 `fromSource()`**：这样 `fingerprint()` 不会写 `sha256File`（否则那个哈希描述的是盘上旧内容，做"产物过期"门禁会误判）。
 * 生成器脚本里**不要**手拼 `"export const X = " + v`：引号转义、类型标注、字节稳定性都由 `emitTsModule` 负责。
 * 领域校验（中文名映射、跨表引用、设计约束）**仍然要自己写** —— 那是业务规则，工具不该内置。

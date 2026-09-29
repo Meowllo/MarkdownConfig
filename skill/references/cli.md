@@ -4,22 +4,17 @@
 
 ## 安装
 
-需要 Node.js 18+；网络受限时为终端配置代理。
+需要 Node.js 18+。**只有一个渠道：npm**（SDK 与 `mc` CLI 是同一个包，装一次两者都有、版本天然一致）：
 
-- **零安装运行**（npm registry，固定版本保证可复现）：
+```bash
+npm i markdownconfig
+```
 
-  ```bash
-  npx -y markdownconfig@0.6.0 <command>
-  ```
-
-- 全局安装：`npm install -g markdownconfig@0.6.0`，之后直接用 `mc`。
-- 升级（包名在 0.3.0 曾为 `@markdownconfig/core`，0.3.1 起固定为 `markdownconfig`）：先 `npm rm -g markdownconfig @markdownconfig/core 2>/dev/null` 再安装，避免 bin 冲突。
-  ⚠️ **装完必须 `mc version` 核对**：留着旧版全局 `mc` 时它会被优先调用，于是新语法、新命令会莫名报错，而你看不出是"版本不对"。Python 库同理——它优先用 PATH 上的 `mc`，此时它内部的版本 pin 不生效。
-- **JS / TS 程序内读取**：`npm i markdownconfig`，用 SDK（`open()` → `McDoc`），见 [sdk.md](sdk.md)。**这是同语言读取的推荐通路**。
-- **离线 / 受限环境**（PATH 窄、无 registry 通路）：改用 Release 固定版本 tgz ——
-  `npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig.tgz <command>`，或 `npm i -g <该 URL>`。
-- Python 库（读取时经 npx 自动调用同一版本 CLI）：`pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig-py.tar.gz`。
-- VS Code 编辑器：Release 下载 `markdownconfig-vscode.vsix` → Install from VSIX。
+- 之后用 `npx mc <命令>`（npx 解析到本项目的 `node_modules/.bin/mc`）。
+- 只想零安装地跑一次：`npx -y markdownconfig@latest <command>`。
+- 升级：`npm i markdownconfig@latest`。
+- ⚠️ **升级后 `npx mc version` 核对一遍**：机器上留着旧版全局 `mc`（历史包名 `@markdownconfig/core`）时它可能被优先调用，症状是"新语法、新命令莫名报错"，而完全不像版本问题。
+- 程序内读取用 SDK（`open()` → `McDoc`），见 [sdk.md](sdk.md)。
 - 源码仓库：https://github.com/Meowllo/MarkdownConfig
 
 ## 命令一览
@@ -106,14 +101,7 @@ doc.rows("METRICS");                              // 行对象数组（含 id �
 
 缺表 / 缺 id / 缺列会**抛 `McConfigError` 并列出可选值**，不静默兜底。完整用法见 [sdk.md](sdk.md)。
 
-**非 JS 语言的程序读取（Python 示例）**：
-
-```python
-from markdownconfig import load_config
-cfg = load_config("app.mc")        # 读取时调用 mc CLI，无需预先编译
-print(cfg["server"]["port"])
-print(cfg["METRICS"]["cpu"]["阈值"])
-```
+**非 JS 语言的程序读取**：构建期跑 `mc export app.mc` 得到标准 JSON，交给该语言的标准 JSON 解析器；**形状适配请收敛到一个薄层**（导出形状会随语法演进，见下）。
 
 ## 注意
 
