@@ -26,9 +26,9 @@ description: 介绍并使用 MarkdownConfig（.mc）文件类型 ——Markdown 
 
 3. **局部编辑**：每个配置块有行区间和锚点，Agent 知道改哪里、改的是谁，不必整体重写。
 
-4. **编辑留痕**：通过工具的每次改动自动写入审计日志（`.mc/journal.jsonl`），可追溯。
+4. **一切都在正文里**：值、说明、评论都是文本，**不留任何审计文件**；改动历史交给 git（谁改了什么，`git log`/`git blame` 就是答案）。
 
-5. **评论协作**：人类在文档上加评论提意见，Agent 读取评论后修改、再关闭评论。
+5. **评论协作**：人类在文档末尾的评论区提意见，Agent 读取评论后修改、再删掉该条评论。
 
 6. **块级跳转**：`^id` 锚点支持文档内 / 文档间定位。
 
@@ -36,26 +36,26 @@ description: 介绍并使用 MarkdownConfig（.mc）文件类型 ——Markdown 
 
 `mc` 是操作 .mc 的命令行。**不要自己手写解析器**。工具通过 GitHub Release 分发（需要 Node.js 18+；网络受限时为终端配置代理）。
 
-> **用固定版本 URL，不要用 latest**：npx 按 URL 缓存，latest 更新后本地不会自动刷新；固定版本还保证读取可复现、可追溯。下例以 `v0.5.0` 为准，升级时把版本号整体替换。
+> **用固定版本 URL，不要用 latest**：npx 按 URL 缓存，latest 更新后本地不会自动刷新；固定版本还保证读取可复现、可追溯。下例以 `v0.6.0` 为准，升级时把版本号整体替换。
 
 * **首选，零安装**：用 npx 直接运行官方 tgz（首次自动下载、之后走缓存）：
 
 ```
-npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.5.0/markdownconfig.tgz export app.mc
+npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig.tgz export app.mc
 ```
 
-后续命令同理，把 `mc ...` 换成 `npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.5.0/markdownconfig.tgz ...`。
+后续命令同理，把 `mc ...` 换成 `npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig.tgz ...`。
 
-* **或全局安装**：`npm install -g https://github.com/Meowllo/MarkdownConfig/releases/download/v0.5.0/markdownconfig.tgz`，之后直接用 `mc`。
+* **或全局安装**：`npm install -g https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig.tgz`，之后直接用 `mc`。
 
 * **升级（重要）**：包名在历史版本间变动过（0.1/0.2 为 `markdownconfig`、0.3.0 为 `@markdownconfig/core`，**0.3.1 起固定为 `markdownconfig` 不再变更**）。从旧版升级先卸载再装，避免 bin 冲突：
   `npm rm -g markdownconfig @markdownconfig/core 2>/dev/null; npm i -g <上面的固定版本 tgz>`。
 
-* **Python 程序直接读配置**：`pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.5.0/markdownconfig-py.tar.gz`（库在读取时经 npx 自动调用同一版本 CLI，无需单独安装，见下文）。
+* **Python 程序直接读配置**：`pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig-py.tar.gz`（库在读取时经 npx 自动调用同一版本 CLI，无需单独安装，见下文）。
 
 * **VS Code 编辑器**：从 Release 下载 `markdownconfig-vscode.vsix`，扩展面板 → Install from VSIX。
 
-* 确实要始终跟最新：把 `download/v0.5.0` 换成 `latest/download`，但需加 `--prefer-online`，或升级后 `npm cache clean --force`。
+* 确实要始终跟最新：把 `download/v0.6.0` 换成 `latest/download`，但需加 `--prefer-online`，或升级后 `npm cache clean --force`。
 
 * 以上都不可用时（无 Node / 无网络）：.mc 仍是纯文本，可按 [references/syntax.md](references/syntax.md) 的标记规则人工 / 自行解析，但应优先获取官方工具以保证 canonical 输出一致。
 
@@ -96,15 +96,15 @@ mc blocks app.mc            # 列出块：行区间、id、类型
 
 mc tables app.mc            # 列出已标记表（id 行数 / 行区间）+ 未标记表计数
 
-mc journal app.mc           # 查看审计日志
+mc comments app.mc          # 列出评论（带序号 target/text/line）
 ```
 
-## 编辑 .mc（自动留痕）
+## 编辑 .mc
 
 
 
 ```
-mc set app.mc server.port 9000      # 修改变量（自动落审计日志）
+mc set app.mc server.port 9000      # 修改变量
 
 mc set app.mc METRICS.cpu.阈值 85    # 按 id 改表格单元格（行列按名字定位，不用文本手术）
 
@@ -115,21 +115,29 @@ mc add app.mc feature.newFlag true  # 新增变量
 
 * 需要锚定 / 跳转 / 评论的段落，行尾加块 id（Obsidian 风格），如 `# 服务配置 ^top` 或段落后单独一行 `^b12`。
 
-* 表格单元格用 `<表名>.<id>.<列>` 定位；该行只有一列数据时可省列名。加 `--no-journal` 则不写审计日志、也不创建 `.mc/` 目录。
+* 表格单元格用 `<表名>.<id>.<列>` 定位；该行只有一列数据时可省列名。
 
-* 直接用文本编辑器改正文也可以；但**只有走 `mc set/add`（或带留痕能力的 .mc 编辑器）才会自动记审计日志**。
+* 改完直接落盘（正文即真相），**不产生任何额外文件**；改动历史由 git 记录。
 
 ## 评论工作流（人类提意见 → Agent 修改）
 
+评论**就在正文里**（文档末尾的「评论」区块），没有额外文件：
 
+```
+## 评论
 
-1. Agent 查看未解决评论：`mc comments app.mc`（评论存在 journal，不进正文）。
+<!--@comment target=server.port-->线上是 9090，需确认<!--@/comment-->
+```
 
-2. 按评论指向的块 id / 变量名定位内容，用 `mc set/add` 修改。
+1. Agent 查看评论：`mc comments app.mc`（返回带序号的 `target` / `text` / `line`）。
 
-3. 完成后关闭评论：`mc resolve app.mc <comment-id>`。
+2. 按评论指向的目标（变量名 / `表.id.列` / 块 id）定位内容，用 `mc set/add` 修改。
 
-4. 需要 Agent 侧主动加评论时：`mc comment app.mc <target> <text>`。
+3. 完成后**删除**该条评论：`mc resolve app.mc <序号>`（序号来自上一步；resolve 即删除，不做状态标记）。
+
+4. 需要 Agent 侧主动加评论时：`mc comment app.mc <target> <text>`（append-only 追加到文末评论区）。
+
+注意：多条评论可以指向同一个目标，互不冲突；评论不进 `mc export` 的配置输出。
 
 ## 作为程序配置源
 
@@ -137,9 +145,9 @@ mc add app.mc feature.newFlag true  # 新增变量
 
 * 通用方式：`mc export app.mc` 得到标准 JSON，任何语言都能读 JSON；或脚本里 shell 调用。
 
-* Node：`npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.5.0/markdownconfig.tgz export` 后 `JSON.parse`。
+* Node：`npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig.tgz export` 后 `JSON.parse`。
 
-* Python：`pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.5.0/markdownconfig-py.tar.gz`，然后 `from markdownconfig import load_config; cfg = load_config("app.mc")`（也可用 `get/comments/journal/validate`；库在读取时经 npx 自动调用同一版本 CLI，无需单独安装，也可用环境变量 `MC_CLI` 指定本地 CLI）。
+* Python：`pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig-py.tar.gz`，然后 `from markdownconfig import load_config; cfg = load_config("app.mc")`（也可用 `get/comments/validate`；库在读取时经 npx 自动调用同一版本 CLI，无需单独安装，也可用环境变量 `MC_CLI` 指定本地 CLI）。
 
 * 设计目标是像 JSON 一样跨语言通用：**canonical JSON 是第一公民**，各语言只做薄封装。
 
@@ -175,6 +183,9 @@ mc add app.mc feature.newFlag true  # 新增变量
    ↑ 无名嵌套 → 裸子数组；具名嵌套 → 对象元素：A = [1, 2, { "B": [3, 4] }]
 
 区间：<!--@range AttackRange-->1~5<!--@/range-->（读出 {min,max}；支持全角 ～；必须单行）
+
+评论（放在文档末尾的「评论」区块，标记隐藏、文本可见）：
+<!--@comment target=变量名或表.id.列或块id-->评论文本<!--@/comment-->
 ```
 
 

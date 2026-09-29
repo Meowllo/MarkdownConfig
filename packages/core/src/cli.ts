@@ -4,20 +4,13 @@
 import * as crypto from "crypto";
 import * as fs from "fs";
 import * as path from "path";
+import { appendComment, removeCommentAt } from "./comments";
 import { buildConfig, canonicalJson, declaredOrderJson } from "./config";
-import {
-  allComments,
-  appendOp,
-  hashOf,
-  nextCommentId,
-  openComments,
-  readOps,
-} from "./journal";
-import { parse } from "./scanner";
 import { inferValue } from "./infer";
-import type { McError, TableEntry, VarEntry } from "./types";
+import { parse } from "./scanner";
+import type { McError, ParseResult, TableEntry, VarEntry } from "./types";
 
-const VERSION = "0.5.0";
+const VERSION = "0.6.0";
 
 const HELP = `MarkdownConfig CLI v${VERSION}
 
@@ -27,27 +20,21 @@ const HELP = `MarkdownConfig CLI v${VERSION}
   mc validate <file>                                       校验标记，错误带行号
   mc blocks <file>                                         列出块（id/type/行号）
   mc tables <file> [--all]                                 列出已标记表 + 未标记表计数
-  mc set <file> <name> <value> [--actor=...]               就地修改变量值（落 journal）
-  mc set <file> <TABLE>.<id>.<列> <value>                  就地修改表格单元格（落 journal）
-  mc add <file> <name> <value> [--type=TYPE] [--actor=...] 文件末尾新增变量（落 journal）
-  mc comment <file> <target> <text> [--actor=...]          对块/变量添加评论（落 journal）
-  mc comments <file> [--all]                               列出评论（默认仅未解决）
-  mc resolve <file> <comment-id> [--actor=...]             标记评论已解决
-  mc journal <file> [--tail=N]                             查看审计日志
-  mc log <file> <text> [--target=...] [--actor=...]        追加一条审计记录
+  mc set <file> <name> <value>                             就地修改变量值
+  mc set <file> <TABLE>.<id>.<列> <value>                  就地修改表格单元格
+  mc add <file> <name> <value> [--type=TYPE]                文件末尾新增变量
+  mc comment <file> <target> <text>                        追加评论到文末评论区
+  mc comments <file>                                       列出评论（带序号，供 resolve 用）
+  mc resolve <file> <序号>                                  删除（解决）第 N 条评论
   mc init <file.mc> [--force]                              生成 .mc 骨架文件
-  mc init [dir]                                            初始化 .mc 日志目录
   mc version                                               版本信息
 
 选项:
-  --actor=human|agent    记录操作者（默认 agent）
   --order=declared       导出按声明顺序（默认 canonical 排序）
   --allow-override       同名变量后者覆盖（默认报错）
   --fingerprint          导出顶层带来源指纹 $fingerprint（sha256/sha256File/版本/时间）
   --no-timestamp         指纹不带 generatedAt（保证输出字节稳定）
-  --no-journal           不写入审计日志
-  --all                  评论包含已解决；tables 列出未标记表明细
-  --tail=N               journal 只显示最近 N 条
+  --all                  tables 列出未标记表明细
 `;
 
 function parseArgs(argv: string[]): { pos: string[]; flags: Record<string, string | boolean> } {
@@ -117,7 +104,7 @@ function cmdExport(pos: string[], flags: Record<string, string | boolean>): void
     const fp: Record<string, unknown> = {
       source: path.basename(abs),
       // 源文本指纹：sha256(JSON.stringify(源文本))，不是文件字节
-      sha256: hashOf(source),
+      sha256: hashOfSource(source),
       // 文件字节指纹：改注释也算变，可用 shasum -a 256 复算
       sha256File: sha256File(abs),
       mcVersion: VERSION,
@@ -249,13 +236,9 @@ function cmdTables(pos: string[], flags: Record<string, string | boolean>): void
   process.stdout.write(lines.join("\n") + "\n");
 }
 
-function actorOf(flags: Record<string, string | boolean>): string {
-  return typeof flags.actor === "string" ? flags.actor : "agent";
-}
-
-/** 是否写入审计日志（--no-journal 时不落 .mc/ 目录，避免在 git 仓库里凭空多出目录） */
-function journalEnabled(flags: Record<string, string | boolean>): boolean {
-  return !flags["no-journal"];
+/** 源文本指纹：sha256(JSON.stringify(源文本))。（注意：不是文件字节，见 SPEC §7） */
+function hashOfSource(source: string): string {
+  return crypto.createHash("sha256").update(JSON.stringify(source)).digest("hex");
 }
 
 function cmdSet(pos: string[], flags: Record<string, string | boolean>): void {
@@ -277,16 +260,6 @@ function cmdSet(pos: string[], flags: Record<string, string | boolean>): void {
       fail(`改写会使文档校验失败，已放弃（文件未修改）：\n  ${after.errors.map(formatError).join("\n  ")}`);
     }
     fs.writeFileSync(abs, newSource, "utf8");
-    if (journalEnabled(flags)) {
-      appendOp(abs, {
-        op: "update",
-        actor: actorOf(flags),
-        target: name,
-        hash: hashOf(value),
-        prev_hash: hashOf(entry.valueRaw),
-        text: `set ${name} = ${value}`,
-      });
-    }
     process.stdout.write(`${name} = ${value}\n`);
     return;
   }
@@ -303,7 +276,7 @@ function cmdSet(pos: string[], flags: Record<string, string | boolean>): void {
   }
   const target = resolveTable(res, name);
   if (target) {
-    setTableCell(abs, source, target, value, flags);
+    setTableCell(abs, source, target, value);
     return;
   }
 
@@ -322,7 +295,6 @@ function setTableCell(
   source: string,
   target: { table: TableEntry; id: string; col?: string },
   value: string,
-  flags: Record<string, string | boolean>,
 ): void {
   const { table, id } = target;
   const row = table.data[id];
@@ -370,18 +342,7 @@ function setTableCell(
   }
 
   fs.writeFileSync(abs, newSource, "utf8");
-  const label = `${table.name}.${id}.${col}`;
-  if (journalEnabled(flags)) {
-    appendOp(abs, {
-      op: "update",
-      actor: actorOf(flags),
-      target: label,
-      hash: hashOf(value),
-      prev_hash: hashOf(source.slice(from, to)),
-      text: `set ${label} = ${value}`,
-    });
-  }
-  process.stdout.write(`${label} = ${value}\n`);
+  process.stdout.write(`${table.name}.${id}.${col} = ${value}\n`);
 }
 
 function cmdAdd(pos: string[], flags: Record<string, string | boolean>): void {
@@ -399,86 +360,63 @@ function cmdAdd(pos: string[], flags: Record<string, string | boolean>): void {
     fail(`新增会使文档校验失败，已放弃（文件未修改）：\n  ${after.errors.map(formatError).join("\n  ")}`);
   }
   fs.writeFileSync(abs, newSource, "utf8");
-  if (journalEnabled(flags)) {
-    appendOp(abs, {
-      op: "create",
-      actor: actorOf(flags),
-      target: name,
-      hash: hashOf(value),
-      prev_hash: null,
-      text: `add ${name} = ${value}`,
-    });
-  }
   process.stdout.write(`已新增 ${name} = ${value}\n`);
 }
 
-function cmdComment(pos: string[], flags: Record<string, string | boolean>): void {
+/** 目标是否存在：变量名 / 表名 / 表.id[.列] / 块 id */
+function targetExists(res: ParseResult, target: string): boolean {
+  if (res.entries.some((e) => e.name === target)) return true;
+  if (res.blocks.some((b) => b.id === target)) return true;
+  return resolveTable(res, target) !== null;
+}
+
+function cmdComment(pos: string[], _flags: Record<string, string | boolean>): void {
   const [file, target, ...rest] = pos;
   const text = rest.join(" ");
   if (!file || !target || !text) fail("用法: mc comment <file> <target> <text>");
+  if (text.includes("<!--@")) fail("评论内容里不能再写标记（<!--@…-->）");
   const { abs, source } = load(file);
   const res = parseOrExit(abs, source);
-  const ok =
-    res.entries.some((e) => e.name === target) || res.blocks.some((b) => b.id === target);
-  if (!ok) fail(`目标不存在: ${target}`);
-  const id = nextCommentId(abs);
-  appendOp(abs, {
-    op: "comment",
-    actor: actorOf(flags),
-    target,
-    text,
-    id,
-    status: "open",
-  });
-  process.stdout.write(`评论已添加: ${id} → ${target}\n`);
+  if (!targetExists(res, target)) {
+    fail(
+      `目标不存在: ${target}（可用：变量名 / 表名 / 表.id[.列] / 块 id；现有块 id：${
+        res.blocks.filter((b) => b.id).map((b) => b.id).join(", ") || "无"
+      }）`,
+    );
+  }
+  const next = appendComment(source, target, text);
+  fs.writeFileSync(abs, next, "utf8");
+  process.stdout.write(`已添加评论 → ${target}\n`);
 }
 
-function cmdComments(pos: string[], flags: Record<string, string | boolean>): void {
+function cmdComments(pos: string[], _flags: Record<string, string | boolean>): void {
   const [file] = pos;
   if (!file) fail("用法: mc comments <file>");
-  const { abs } = load(file);
-  const list = flags.all ? allComments(abs) : openComments(abs);
+  const { abs, source } = load(file);
+  const res = parseOrExit(abs, source);
+  const list = res.comments.map((c, i) => ({
+    index: i + 1,
+    target: c.target,
+    text: c.text,
+    line: c.line,
+  }));
   process.stdout.write(JSON.stringify(list, null, 2) + "\n");
 }
 
-function cmdResolve(pos: string[], flags: Record<string, string | boolean>): void {
-  const [file, id] = pos;
-  if (!file || !id) fail("用法: mc resolve <file> <comment-id>");
-  const { abs } = load(file);
-  const found = allComments(abs).find((c) => c.id === id);
-  if (!found) fail(`评论不存在: ${id}`);
-  if (found.status === "resolved") fail(`评论已解决: ${id}`);
-  appendOp(abs, {
-    op: "resolve",
-    actor: actorOf(flags),
-    target: id,
-    text: "resolved",
-  });
-  process.stdout.write(`已解决: ${id}\n`);
-}
-
-function cmdJournal(pos: string[], flags: Record<string, string | boolean>): void {
-  const [file] = pos;
-  if (!file) fail("用法: mc journal <file>");
-  const { abs } = load(file);
-  let ops = readOps(abs);
-  const tail = flags.tail !== undefined ? Number(flags.tail) : NaN;
-  if (!Number.isNaN(tail) && Number.isFinite(tail)) ops = ops.slice(-tail);
-  process.stdout.write(JSON.stringify(ops, null, 2) + "\n");
-}
-
-function cmdLog(pos: string[], flags: Record<string, string | boolean>): void {
-  const [file, ...rest] = pos;
-  const text = rest.join(" ");
-  if (!file || !text) fail("用法: mc log <file> <text>");
-  const { abs } = load(file);
-  appendOp(abs, {
-    op: "log",
-    actor: actorOf(flags),
-    target: typeof flags.target === "string" ? flags.target : undefined,
-    text,
-  });
-  process.stdout.write("已记录\n");
+function cmdResolve(pos: string[], _flags: Record<string, string | boolean>): void {
+  const [file, n] = pos;
+  if (!file || !n) fail("用法: mc resolve <file> <序号>（序号见 mc comments）");
+  const { abs, source } = load(file);
+  const res = parseOrExit(abs, source);
+  const idx = Number(n);
+  if (!/^\d+$/.test(n)) fail(`序号必须是数字：${n}（用法: mc resolve <file> <序号>）`);
+  if (idx < 1 || idx > res.comments.length) {
+    const avail = res.comments.map((c, i) => `${i + 1}.${c.target}`).join(", ") || "（无）";
+    fail(`没有第 ${n} 条评论（现有：${avail}）`);
+  }
+  const c = res.comments[idx - 1];
+  fs.writeFileSync(abs, removeCommentAt(source, idx), "utf8");
+  process.stdout.write(`已解决（删除）第 ${idx} 条评论 → ${c.target}\n`);
 }
 
 /** 新文档骨架：本身就是合法的 .mc（mc validate 必须通过） */
@@ -507,19 +445,13 @@ const SKELETON = [
 
 function cmdInit(pos: string[], flags: Record<string, string | boolean>): void {
   const arg = pos[0];
-  if (arg && /\.mc$/i.test(arg)) {
-    const target = path.resolve(arg);
-    if (fs.existsSync(target) && !flags.force) fail(`文件已存在: ${arg}（覆盖请加 --force）`);
-    fs.writeFileSync(target, SKELETON, "utf8");
-    process.stdout.write(`已生成骨架: ${arg}\n`);
-    return;
+  if (!arg || !/\.mc$/i.test(arg)) {
+    fail("用法: mc init <file.mc>（生成骨架文件）");
   }
-  const dir = arg ? path.resolve(arg) : process.cwd();
-  const jdir = path.join(dir, ".mc");
-  fs.mkdirSync(jdir, { recursive: true });
-  const jf = path.join(jdir, "journal.jsonl");
-  if (!fs.existsSync(jf)) fs.writeFileSync(jf, "", "utf8");
-  process.stdout.write(`已初始化: ${jdir}\n`);
+  const target = path.resolve(arg);
+  if (fs.existsSync(target) && !flags.force) fail(`文件已存在: ${arg}（覆盖请加 --force）`);
+  fs.writeFileSync(target, SKELETON, "utf8");
+  process.stdout.write(`已生成骨架: ${arg}\n`);
 }
 
 function main(): void {
@@ -560,12 +492,6 @@ function main(): void {
       break;
     case "resolve":
       cmdResolve(pos, flags);
-      break;
-    case "journal":
-      cmdJournal(pos, flags);
-      break;
-    case "log":
-      cmdLog(pos, flags);
       break;
     case "init":
       cmdInit(pos, flags);

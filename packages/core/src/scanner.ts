@@ -5,6 +5,7 @@ import { parseTable } from "./table";
 import type {
   ArrayEntry,
   Block,
+  CommentEntry,
   ConfigEntry,
   McError,
   ParseResult,
@@ -121,7 +122,7 @@ export function parse(source: string): ParseResult {
 
   // ---- Pass 2：扫描顶层值块（跳过围栏与表格区域；表格内联标记归表格）----
   //   @array 可嵌套 @array，由 markers.scanMarkers 统一做配对与递归解析
-  const { regions: valueRegions, issues } = scanMarkers(source);
+  const { regions: valueRegions, comments: scannedComments, issues } = scanMarkers(source);
   const skipAt = (off: number): boolean => {
     const line = lineAt(off) - 1;
     return inFence(line, fences) || inTableRegion(line);
@@ -130,6 +131,12 @@ export function parse(source: string): ParseResult {
   for (const iss of issues) {
     if (skipAt(iss.at)) continue;
     errors.push({ line: lineAt(iss.at), message: iss.message, hint: iss.hint });
+  }
+
+  const comments: CommentEntry[] = [];
+  for (const c of scannedComments) {
+    if (skipAt(c.start)) continue; // 围栏内忽略；表格内由单元格解析报错
+    comments.push({ ...c, line: lineAt(c.start) });
   }
 
   const blockSpans: Array<[number, number]> = [];
@@ -228,7 +235,20 @@ export function parse(source: string): ParseResult {
     seen.add(k);
     return true;
   });
-  return { entries, blocks, errors: dedupErrors };
+  return { entries, blocks, comments, errors: dedupErrors };
+}
+
+/** 文档中最后一个 ATX 标题的文本（fence 感知，已剥离 `^id`）；没有标题返回 null */
+export function lastHeadingTitle(source: string): string | null {
+  const lines = source.split(/\r?\n/);
+  const fences = fenceRanges(lines);
+  let title: string | null = null;
+  for (let i = 0; i < lines.length; i++) {
+    if (inFence(i, fences)) continue;
+    const h = lines[i].match(HEADING_RE);
+    if (h) title = h[2].trim();
+  }
+  return title;
 }
 
 /** 轻量块扫描：标题 / 段落 / 表格，行尾 ^id 或独立 ^id 行（fence 感知） */

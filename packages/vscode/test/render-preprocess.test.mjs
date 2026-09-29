@@ -58,3 +58,14 @@ test("preprocessForRender：@range 标记 → 蓝色 span + 变量名", () => {
   assert.ok(!out.includes("<!--@range"));
   assert.ok(!out.includes("<!--@/range-->"));
 });
+
+test("preprocessForRender：@comment 标记隐藏、评论文本可见", () => {
+  const src = "## 评论\n\n<!--@comment target=server.port-->端口应为 9090<!--@/comment-->\n";
+  const out = preprocessForRender(src);
+  assert.ok(out.includes('<span class="mc-comment" title="评论 → server.port">端口应为 9090</span>'));
+  assert.ok(!out.includes("<!--@comment"));
+  assert.ok(!out.includes("<!--@/comment-->"));
+  // 渲染后评论文本对人类可见
+  const html = md.render(out);
+  assert.ok(html.includes("端口应为 9090"));
+});

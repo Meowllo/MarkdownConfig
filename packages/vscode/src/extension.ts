@@ -3,24 +3,16 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
-import {
-  appendOp,
-  buildConfig,
-  canonicalJson,
-  hashOf,
-  nextCommentId,
-  parse,
-  prevHash,
-} from "markdownconfig";
+import { appendComment, buildConfig, canonicalJson, parse, removeCommentAt } from "markdownconfig";
 import { CommentsProvider, McCommentNode } from "./comments";
 import { assignBlockId, computeHighlights, findTargetForSelection, hoverAt, isMcFile } from "./pure";
-import { setupWatcher } from "./watcher";
 
 const VALUE_COLOR = "#2E86DE";
 const MARKER_COLOR = "#8A97A5";
+const COMMENT_COLOR = "#B7791F";
 
 export function activate(context: vscode.ExtensionContext): void {
-  // ---- 装饰：config 值蓝色高亮 + 标记灰色（主题无关）----
+  // ---- 装饰：config 值蓝色高亮 + 标记灰色 + 评论正文琥珀色（主题无关）----
   const valueType = vscode.window.createTextEditorDecorationType({
     color: VALUE_COLOR,
     fontWeight: "600",
@@ -29,31 +21,34 @@ export function activate(context: vscode.ExtensionContext): void {
     color: MARKER_COLOR,
     fontStyle: "italic",
   });
-  context.subscriptions.push(valueType, markerType);
+  const commentType = vscode.window.createTextEditorDecorationType({
+    color: COMMENT_COLOR,
+    fontStyle: "italic",
+  });
+  context.subscriptions.push(valueType, markerType, commentType);
 
   let timer: NodeJS.Timeout | undefined;
   const updateDecorations = (editor: vscode.TextEditor | undefined): void => {
     if (!editor || !isMcFile(editor.document.fileName)) return;
     const source = editor.document.getText();
     const ranges = computeHighlights(source);
-    editor.setDecorations(
-      valueType,
-      ranges
-        .filter((r) => r.kind === "value")
-        .map(
-          (r) =>
-            new vscode.Range(editor.document.positionAt(r.start), editor.document.positionAt(r.end)),
-        ),
-    );
-    editor.setDecorations(
-      markerType,
-      ranges
-        .filter((r) => r.kind === "marker")
-        .map(
-          (r) =>
-            new vscode.Range(editor.document.positionAt(r.start), editor.document.positionAt(r.end)),
-        ),
-    );
+    const apply = (type: vscode.TextEditorDecorationType, kind: string): void => {
+      editor.setDecorations(
+        type,
+        ranges
+          .filter((r) => r.kind === kind)
+          .map(
+            (r) =>
+              new vscode.Range(
+                editor.document.positionAt(r.start),
+                editor.document.positionAt(r.end),
+              ),
+          ),
+      );
+    };
+    apply(valueType, "value");
+    apply(markerType, "marker");
+    apply(commentType, "comment");
   };
   const schedule = (editor: vscode.TextEditor | undefined): void => {
     if (timer) clearTimeout(timer);
@@ -204,17 +199,14 @@ export function activate(context: vscode.ExtensionContext): void {
         value: defaultText,
       });
       if (!text) return;
-      const id = nextCommentId(doc.fileName);
-      appendOp(doc.fileName, {
-        op: "comment",
-        actor: "human",
-        target,
-        text,
-        id,
-        status: "open",
-      });
+      // 评论写进正文的评论区（append-only）：不做任何外部存储
+      const cur = doc.getText();
+      const edit2 = new vscode.WorkspaceEdit();
+      edit2.replace(doc.uri, new vscode.Range(doc.positionAt(0), doc.positionAt(cur.length)), appendComment(cur, target, text));
+      await vscode.workspace.applyEdit(edit2);
+      await doc.save();
       refreshComments();
-      vscode.window.showInformationMessage(`评论已添加：${id} → ${target}`);
+      vscode.window.showInformationMessage(`评论已添加 → ${target}`);
     }),
 
     vscode.commands.registerCommand("mc.editValue", async (arg?: { name?: string }) => {
@@ -236,28 +228,30 @@ export function activate(context: vscode.ExtensionContext): void {
       );
       await vscode.workspace.applyEdit(edit);
       await doc.save();
-      appendOp(doc.fileName, {
-        op: "update",
-        actor: "human",
-        target: entry.name,
-        hash: hashOf(next),
-        prev_hash: prevHash(doc.fileName, entry.name),
-        text: `set ${entry.name} = ${next}`,
-      });
       refreshComments();
       vscode.window.showInformationMessage(`${entry.name} = ${next}`);
     }),
 
     vscode.commands.registerCommand("mc.resolveComment", async (node?: McCommentNode) => {
       if (!node) return;
-      if (node.comment.status === "resolved") return;
-      appendOp(node.file, {
-        op: "resolve",
-        actor: "human",
-        target: node.comment.id,
-        text: "resolved via UI",
-      });
+      const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(node.file));
+      const source = doc.getText();
+      let next: string;
+      try {
+        next = removeCommentAt(source, node.comment.index);
+      } catch (err) {
+        return vscode.window.showErrorMessage(`删除评论失败：${String(err)}`);
+      }
+      const edit = new vscode.WorkspaceEdit();
+      edit.replace(
+        doc.uri,
+        new vscode.Range(doc.positionAt(0), doc.positionAt(source.length)),
+        next,
+      );
+      await vscode.workspace.applyEdit(edit);
+      await doc.save();
       refreshComments();
+      vscode.window.showInformationMessage(`已解决（删除）评论 → ${node.comment.target}`);
     }),
 
     vscode.commands.registerCommand("mc.openTarget", async (node?: McCommentNode) => {
@@ -265,11 +259,11 @@ export function activate(context: vscode.ExtensionContext): void {
       const uri = vscode.Uri.file(node.file);
       const doc = await vscode.workspace.openTextDocument(uri);
       const editor = await vscode.window.showTextDocument(doc);
+      // 优先跳到被评论的目标；目标已被改名/删除时回落到评论自身所在行
       const res = parse(doc.getText());
-      const target = node.comment.target ?? "";
-      const entry = res.entries.find((e) => e.name === target);
-      const block = res.blocks.find((b) => b.id === target);
-      const line = entry ? entry.line : block ? block.lines[0] : 1;
+      const entry = res.entries.find((e) => e.name === node.comment.target);
+      const block = res.blocks.find((b) => b.id === node.comment.target);
+      const line = entry ? entry.line : block ? block.lines[0] : node.comment.line;
       const pos = new vscode.Position(line - 1, 0);
       editor.selection = new vscode.Selection(pos, pos);
       editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
@@ -362,8 +356,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
-  // ---- watcher：人类手写编辑 → journal 留痕 ----
-  setupWatcher(context, refreshComments);
+  // ---- 收尾：不再有保存 watcher（人类改动交给 git 留痕）----
 }
 
 // ---- 文档模式（预览中编辑）：Webview 面板 ----
@@ -415,6 +408,7 @@ body { font-family: var(--vscode-font-family); margin: 0; padding: 12px 16px; co
 .mc-edit-btn { position: absolute; top: 2px; right: 4px; opacity: 0; transition: opacity .15s; font-size: 11px; padding: 1px 8px; border-radius: 4px; border: 1px solid var(--vscode-panel-border); background: var(--vscode-button-background); color: var(--vscode-button-foreground); cursor: pointer; }
 .mc-block:hover .mc-edit-btn { opacity: 1; }
 .mc-value { color: #2E86DE; font-weight: 600; }
+.mc-comment { color: #B7791F; font-style: italic; }
 .mc-table-tag { display: inline-block; font-size: 12px; color: #8A97A5; border: 1px solid var(--vscode-panel-border); border-radius: 4px; padding: 1px 8px; margin: 6px 0; }
 .mc-edit { width: 100%; min-height: 80px; font-family: var(--vscode-editor-font-family); font-size: 13px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 4px; padding: 6px; box-sizing: border-box; }
 .mc-edit-footer { margin-top: 6px; display: flex; gap: 8px; }

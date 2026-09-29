@@ -112,27 +112,23 @@ export interface Block {
   lines: [number, number];
 }
 
+/** 评论：存在文档正文里（约定统一放在末尾的评论区），不进配置、不落外部文件 */
+export interface CommentEntry {
+  /** 指向的目标：变量名 / 表名 / `表.id[.列]` / 块 id（不含 `^`） */
+  target: string;
+  /** 评论正文（trim 后） */
+  text: string;
+  /** 开标记的字符起点 */
+  start: number;
+  /** 关标记的字符终点 */
+  end: number;
+  /** 开标记所在行（1-based） */
+  line: number;
+}
+
 export interface ParseResult {
   entries: ConfigEntry[];
   blocks: Block[];
+  comments: CommentEntry[];
   errors: McError[];
-}
-
-export type JournalOpType = "create" | "update" | "comment" | "resolve" | "log";
-
-export interface JournalOp {
-  op: JournalOpType;
-  actor: string;
-  ts: string;
-  /** 相对 journal 目录的文件路径 */
-  file: string;
-  target?: string;
-  /** sha256（值文本），同一 target 通过 prev_hash 串链 */
-  hash?: string | null;
-  prev_hash?: string | null;
-  text?: string;
-  /** 评论 id（op=comment） */
-  id?: string;
-  /** 评论状态（op=comment：open；op=resolve 关闭） */
-  status?: string;
 }

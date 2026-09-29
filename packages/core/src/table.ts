@@ -53,8 +53,14 @@ interface CellResult {
 const UNCLOSED = (cell: string): string => `单元格内联标记未闭合或错配：${cell.trim()}`;
 
 function parseCell(cell: CellSpan): CellResult {
-  const { regions, issues } = scanMarkers(cell.text);
+  const { regions, comments, issues } = scanMarkers(cell.text);
   if (issues.length > 0) return { value: null, error: UNCLOSED(cell.text) };
+  if (comments.length > 0) {
+    return {
+      value: null,
+      error: `单元格内不能写评论（评论请统一放在文档末尾的评论区）：${cell.text.trim()}`,
+    };
+  }
 
   if (regions.length === 0) {
     if (cell.text.includes("<!--@")) return { value: null, error: UNCLOSED(cell.text) };

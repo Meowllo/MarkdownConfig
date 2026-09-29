@@ -1,6 +1,5 @@
 node_modules/
 dist/
-.mc/
 __pycache__/
 *.pyc
 .DS_Store

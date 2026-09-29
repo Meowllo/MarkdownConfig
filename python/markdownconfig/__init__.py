@@ -21,7 +21,7 @@ class MCPyError(RuntimeError):
 # GitHub Release 托管的官方 CLI 包（npm tgz），找不到本地 mc 时经 npx 调用。
 # pin 固定版本以保证可复现（npx 按 URL 缓存；升级时同步改此版本号）。
 _REMOTE_CLI = (
-    "https://github.com/Meowllo/MarkdownConfig/releases/download/v0.5.0/markdownconfig.tgz"
+    "https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig.tgz"
 )
 
 
@@ -76,15 +76,13 @@ def validate(path: str, cli: Optional[str] = None) -> List[str]:
     return [l for l in proc.stdout.splitlines() if l.strip()]
 
 
-def comments(path: str, open_only: bool = True, cli: Optional[str] = None) -> List[dict]:
-    """读取评论（默认仅未解决）。"""
-    args = ["comments", str(path)] + ([] if open_only else ["--all"])
-    return json.loads(_run(args, cli))
+def comments(path: str, cli: Optional[str] = None) -> List[dict]:
+    """读取文档评论（存放在正文末尾的评论区）。
 
-
-def journal(path: str, cli: Optional[str] = None) -> List[dict]:
-    """读取审计日志。"""
-    return json.loads(_run(["journal", str(path)], cli))
+    每项形如 ``{"index": 1, "target": "server.port", "text": "...", "line": 42}``；
+    ``index`` 可直接传给 CLI 的 ``mc resolve`` 删除该条评论。
+    """
+    return json.loads(_run(["comments", str(path)], cli))
 
 
 # 语义别名：load_config 与 load 等价。

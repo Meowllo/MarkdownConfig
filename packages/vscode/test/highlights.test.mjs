@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { assignBlockId, computeHighlights, diffPaths, findTargetForSelection, hoverAt, isMcFile, summarizeTextDiff } from "../out/pure.js";
+import { assignBlockId, computeHighlights, findTargetForSelection, hoverAt, isMcFile } from "../out/pure.js";
 
 test("computeHighlights：值区间与标记区间", () => {
   const src = "超时：<!--@var TIMEOUT_MS-->3000<!--@/var-->毫秒\n";
@@ -40,12 +40,25 @@ test("hoverAt：标记上也命中", () => {
   assert.equal(info.name, "X");
 });
 
-test("diffPaths：嵌套路径差异与无差异", () => {
-  const prev = { a: { b: 1 }, c: 2 };
-  const cur = { a: { b: 2 }, c: 2 };
-  assert.deepEqual(diffPaths(prev, cur), ["a.b"]);
-  assert.equal(diffPaths(prev, prev).length, 0);
-  assert.deepEqual(diffPaths(null, { x: 1 }), ["x"]);
+test("computeHighlights：评论正文单独着色，标记仍为 marker", () => {
+  const src = "## 评论\n\n<!--@comment target=server.port-->端口应为 9090<!--@/comment-->\n";
+  const ranges = computeHighlights(src);
+  const comments = ranges.filter((r) => r.kind === "comment");
+  assert.equal(comments.length, 1);
+  assert.equal(src.slice(comments[0].start, comments[0].end), "端口应为 9090");
+  const markers = ranges.filter((r) => r.kind === "marker");
+  assert.ok(markers.some((r) => src.slice(r.start, r.end).includes("@comment")));
+  assert.ok(markers.some((r) => src.slice(r.start, r.end).includes("@/comment")));
+});
+
+test("hoverAt：评论上返回 target 与文本", () => {
+  const src = "<!--@comment target=server.port-->端口应为 9090<!--@/comment-->\n";
+  const idx = src.indexOf("端口") + 1;
+  const info = hoverAt(src, idx);
+  assert.ok(info);
+  assert.equal(info.name, "server.port");
+  assert.equal(info.type, "comment");
+  assert.equal(info.value, "端口应为 9090");
 });
 
 test("isMcFile：大小写不敏感", () => {
@@ -114,25 +127,6 @@ test("assignBlockId：多个独立块 id 递增唯一", () => {
   assert.equal(o2.id, "b-2");
   assert.ok(o2.source.includes("段落A ^b-1"));
   assert.ok(o2.source.includes("段落B ^b-2"));
-});
-
-test("summarizeTextDiff：修改/新增/删除行", () => {
-  const prev = "第一行\n第二行\n第三行\n";
-  // 改一行
-  assert.deepEqual(summarizeTextDiff(prev, "第一行\n第二行改\n第三行\n"), ["L2 修改"]);
-  // 新增一行
-  assert.deepEqual(summarizeTextDiff(prev, "第一行\n第二行\n新行\n第三行\n"), ["L3 新增"]);
-  // 删除一行
-  assert.deepEqual(summarizeTextDiff(prev, "第一行\n第三行\n"), ["L2 删除"]);
-  // 无改动
-  assert.deepEqual(summarizeTextDiff(prev, prev), []);
-});
-
-test("summarizeTextDiff：多段改动被合并", () => {
-  const prev = "a\nb\nc\nd\ne\nf\ng\n";
-  const cur = "a\nB\nc\nd\nE\nf\nh\n"; // b→B、e→E、g→h 三处
-  const out = summarizeTextDiff(prev, cur);
-  assert.deepEqual(out, ["L2 修改", "L5 修改", "L7 修改"]);
 });
 
 test("range：高亮 / hover / 选中锚定", () => {

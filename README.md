@@ -1,13 +1,13 @@
 # MarkdownConfig
 
-一种比 Markdown 更适合「人类 + Agent」协作的文档格式：**Markdown 超集 + 结构化配置声明 + 审计留痕**。
+一种**Markdown 版本的配置源**：**Markdown 超集 + 结构化配置声明**。
 
-人类照常书写阅读，Agent 可结构化读取 / 编辑，程序把文档中的 config 当作配置源读取。
+程序按文档里声明的 config 运行，所以文档就是权威设计真相；人类照常书写阅读，Agent 可结构化读取 / 编辑。相比 JSON/YAML 可读性更好，相比表格更自由（非结构化的自然语言描述也能直接当配置源）。
 
 * 文件后缀：`.mc`（与主流格式无冲突）
 * 语法规范：见 [SPEC.md](SPEC.md)（唯一权威）
-* 设计原则：**文本是真相，journal 只做审计**；**编译产物 = 标准 JSON**；**语法极小**
-* 版本：全项目（CLI / SDK / Python 库 / VS Code 扩展 / Agent Skill / 规范）统一版号，当前 `v0.5.0`
+* 设计原则：**文本是真相（含评论），一切都在正文里**；**编译产物 = 标准 JSON**；**语法极小**
+* 版本与变更：全项目（CLI / SDK / Python 库 / VS Code 扩展 / Agent Skill / 规范）统一版号，当前 `v0.6.0`；**留痕与版本控制交给 git**（`.mc` 不生成任何审计文件或日志目录）
 
 ## 一行示例
 
@@ -38,7 +38,7 @@ MarkdownConfig/
 ├── README.md                # 本文件
 ├── examples/                # 示例 .mc 文件
 ├── packages/core/           # 核心：TypeScript SDK + mc CLI（单一事实实现）
-│   ├── src/                 # markers（标记词法/嵌套）/ scanner / table / infer / config / journal / cli
+│   ├── src/                 # markers（标记词法/嵌套）/ scanner / table / infer / config / comments / cli
 │   └── test/fixtures/       # 黄金语料（.mc + 期望 .json）
 ├── packages/vscode/         # VS Code 扩展（高亮 / hover / 评论 / watcher / 文档模式）
 ├── python/markdownconfig/   # Python Tier-1 读取库（读取时经 npx 调 CLI；GitHub Release 分发）
@@ -51,20 +51,20 @@ MarkdownConfig/
 
 ### 0. 直接安装（无需克隆，通过 GitHub Release）
 
-> 用固定版本 URL（不要用 latest）：npx 按 URL 缓存，latest 更新后不会自动刷新；固定版本也保证可复现。下例为 `v0.5.0`。
+> 用固定版本 URL（不要用 latest）：npx 按 URL 缓存，latest 更新后不会自动刷新；固定版本也保证可复现。下例为 `v0.6.0`。
 
 ```
 # CLI 免安装运行（需要 Node.js 18+）
-npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.5.0/markdownconfig.tgz export app.mc
+npx -y https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig.tgz export app.mc
 
 # CLI 全局安装
-npm install -g https://github.com/Meowllo/MarkdownConfig/releases/download/v0.5.0/markdownconfig.tgz
+npm install -g https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig.tgz
 # 从旧版升级（0.3.0 时包名曾为 @markdownconfig/core，0.3.1 起固定为 markdownconfig，之后不再变更）：
 #   npm rm -g markdownconfig @markdownconfig/core 2>/dev/null
-#   npm i -g https://github.com/Meowllo/MarkdownConfig/releases/download/v0.5.0/markdownconfig.tgz
+#   npm i -g https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig.tgz
 
 # Python 库（读取时经 npx 自动调用同一版本 CLI，无需单独安装）
-pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.5.0/markdownconfig-py.tar.gz
+pip install https://github.com/Meowllo/MarkdownConfig/releases/download/v0.6.0/markdownconfig-py.tar.gz
 
 # VS Code 扩展：Release 下载 markdownconfig-vscode.vsix → 扩展面板「从 VSIX 安装」
 
@@ -103,13 +103,12 @@ mc get examples/app.mc METRICS.cpu.等级    # 读取表格单元格 → "test"
 mc validate examples/app.mc               # 校验标记（错误带行号，误用带提示）
 mc blocks examples/app.mc                 # 块索引（id/type/行号，Agent 局部读取用）
 mc tables examples/app.mc                 # 列出已标记表（id 行数 / 行区间）
-mc set examples/app.mc server.port 9090   # 就地改变量 + 落 journal
-mc set examples/app.mc METRICS.cpu.阈值 85  # 按 id 就地改表格单元格（--no-journal 可不落盘审计）
-mc add examples/app.mc debug.level 3      # 末尾新增变量 + 落 journal
-mc comment examples/app.mc server.port "建议改回 8080"   # 锚定评论（落 journal）
-mc comments examples/app.mc               # 查看未解决评论
-mc resolve examples/app.mc c-1            # 标记评论已解决
-mc journal examples/app.mc                # 审计日志（哈希链）
+mc set examples/app.mc server.port 9090   # 就地改变量
+mc set examples/app.mc METRICS.cpu.阈值 85  # 按 id 就地改表格单元格
+mc add examples/app.mc debug.level 3      # 末尾新增变量
+mc comment examples/app.mc server.port "建议改回 8080"   # 追加评论到文末评论区
+mc comments examples/app.mc               # 列出评论（带序号）
+mc resolve examples/app.mc 1              # 删除（解决）第 1 条评论
 ```
 
 ### 3. Python 读取（Tier-1：读取时才跑 CLI）
@@ -148,9 +147,9 @@ console.log(config.server.port); // 8080
 
 - **config 值蓝色高亮**（主题无关）、标记灰色斜体
 - **hover** 显示变量名 / 类型 / 值，附「编辑值」「添加评论」入口
-- **评论面板**（活动栏 MarkdownConfig）：列出工作区未解决评论，支持添加 / 解决 / 跳转目标（读取 `.mc/journal.jsonl`）；**选中文本可直接评论**，自动锚定到变量 / 表格 / 块 id，无 id 的段落或标题自动生成 `^b-N`
+- **评论面板**（活动栏 MarkdownConfig）：列出工作区所有评论（直接解析 `.mc` 正文的评论区），支持添加 / 删除 / 跳转目标；**选中文本可直接评论**，自动锚定到变量 / 表格 / 块 id，无 id 的段落或标题自动生成 `^b-N`
 - **导出配置 JSON**：编辑器标题栏按钮
-- **人工编辑留痕**：保存 `.mc` 时自动比对上次快照，把改动写入 journal（actor=human）；首次保存自动创建 journal + 快照，之后每次保存 **config 路径 + 行级文本 diff** 双轨留痕
+- **评论正文琥珀色高亮**：标记灰色、评论文字可见可读；改动历史交给 git，不再做保存留痕
 - **文档模式（预览中编辑）**：标题栏「文档模式」→ 侧栏 Webview 渲染面板；config 值蓝色标识、表格显示「配置表：NAME」标签、块 id 隐藏；悬停块右上角「编辑块」→ 就地编辑**原始 markdown（含标记）**
 
 安装方式一（VSIX，推荐）：从 Release 下载 `markdownconfig-vscode.vsix` → 扩展面板 `...` → 「从 VSIX 安装…」。
@@ -180,4 +179,5 @@ node scripts/gen-golden.mjs                                   # 重建黄金语�
 * [x] P3 Skill：markdownconfig 技能文档，随 GitHub Release 生效
 * [x] 发布：GitHub 公开仓库 https://github.com/Meowllo/MarkdownConfig （npm、PyPI 暂缓）
 * [x] v0.5.0：表格 id 列语义 + `mc set` 就地改格、`@array` 嵌套、报错指路、指纹补 `sha256File`
+* [x] v0.6.0：评论搬进正文（`@comment` + 文末评论区）、删除全部审计功能（`.mc/` 目录、快照、watcher、哈希链）—— 留痕交给 git
 * [ ] Obsidian 插件（已暂缓，后续按需排期）

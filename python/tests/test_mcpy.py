@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from markdownconfig import comments, get, journal, load, validate  # noqa: E402
+from markdownconfig import comments, get, load, validate  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent.parent
 EXAMPLE = REPO / "examples" / "app.mc"
@@ -37,12 +37,12 @@ def test_validate():
     assert validate(str(EXAMPLE)) == []
 
 
-def test_comments_and_journal_empty_on_fresh_copy():
+def test_comments_read_from_document():
+    # 示例文档没有评论区 → 空列表
     with tempfile.TemporaryDirectory() as tmp:
         p = Path(tmp) / "app.mc"
         shutil.copy2(EXAMPLE, p)
         assert comments(str(p)) == []
-        assert journal(str(p)) == []
 
 
 if __name__ == "__main__":

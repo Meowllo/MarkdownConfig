@@ -2,7 +2,7 @@
   "name": "markdownconfig-vscode",
   "displayName": "MarkdownConfig",
   "description": ".mc 文件预览与编辑：config 值蓝色高亮、hover 显示变量名、锚定评论、人工编辑留痕",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "publisher": "markdownconfig",
   "engines": {
     "vscode": "^1.85.0"
@@ -48,7 +48,7 @@
         {
           "type": "tree",
           "id": "mcComments",
-          "name": "评论（journal）"
+          "name": "评论"
         }
       ]
     },
@@ -130,11 +130,6 @@
     "configuration": {
       "title": "MarkdownConfig",
       "properties": {
-        "markdownconfig.watchHumanEdits": {
-          "type": "boolean",
-          "default": true,
-          "description": "保存 .mc 时自动比对上次状态并留痕：首个保存自动建 journal+快照，之后每次保存把改动路径写入 journal"
-        },
         "markdownconfig.highlightConfigValues": {
           "type": "boolean",
           "default": true,

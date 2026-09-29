@@ -1,5 +1,5 @@
 /**
- * 标记词法与内联区域扫描（@var / @array / @range 的统一实现）
+ * 标记词法与内联区域扫描（@var / @array / @range / @comment 的统一实现）
  *
  * 为什么单独一层：`@array` 支持嵌套后，"标记内的标记"不再能被正则直切，
  * 顶层扫描、表格单元格、数组元素三处都需要同一套"配对 + 递归"逻辑。
@@ -7,14 +7,17 @@
  */
 
 import { inferValue, parseRangeValue } from "./infer";
+import type { CommentEntry } from "./types";
 
-export type MarkerKind = "var" | "array" | "range";
+export type MarkerKind = "var" | "array" | "range" | "comment";
 
 export interface MarkerToken {
   open: boolean;
   kind: MarkerKind;
   /** 名称；无名（仅用于嵌套 @array）时为 undefined */
   ident?: string;
+  /** @comment 的 target 属性 */
+  target?: string;
   declared?: string;
   /** 标记完整区间 [start, end) */
   start: number;
@@ -45,8 +48,13 @@ export interface InlineRegion {
 
 export interface ScanResult {
   regions: InlineRegion[];
+  /** 评论（不含行号，由调用方补） */
+  comments: ScannedComment[];
   issues: InlineIssue[];
 }
+
+/** 评论区域（行号由 scanner 补成 CommentEntry） */
+export type ScannedComment = Omit<CommentEntry, "line">;
 
 interface ArrayRead {
   region: InlineRegion;
@@ -55,9 +63,19 @@ interface ArrayRead {
   issues: InlineIssue[];
 }
 
-/** 名称可省略：`<!--@array -->`（无名嵌套）合法 */
+/**
+ * 名称可省略（无名嵌套 @array）；@comment 用 target= 属性。
+ * target 用 `[^>\n]+?` 且**非贪婪**：否则正文不含空格时会把 `-->` 一起吞掉，
+ * 连关闭标记 `<!--@/comment-->` 也被吃掉（正文里没有空白就一路吃到底）。
+ */
 const TOKEN_RE =
-  /<!--@(var|array|range)(?:\s+([A-Za-z_][\w.-]*))?(?:\s+type=([A-Za-z]+))?\s*-->|<!--@\/(var|array|range)\s*-->/g;
+  /<!--@comment(?:\s+target=([^>\n]+?))?\s*-->|<!--@(var|array|range)(?:\s+([A-Za-z_][\w.-]*))?(?:\s+type=([A-Za-z]+))?\s*-->|<!--@\/(var|array|range|comment)\s*-->/g;
+
+/**
+ * target 只要求"非空且不含空白"：变量名/表名是 ASCII，但 `表.id.列` 里的
+ * id 与列名可以是中文，所以这里不做字符集限制；目标是否存在由 `mc comment` 校验。
+ */
+const TARGET_RE = /^\^?\S+$/;
 
 /** 占位符：把已解析的嵌套区域替换成单个不可与正文混淆的元素，再按 `/` 切分 */
 const PH = "\u0000";
@@ -71,23 +89,26 @@ export function tokenize(src: string): MarkerToken[] {
   TOKEN_RE.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = TOKEN_RE.exec(src)) !== null) {
-    if (m[1] !== undefined) {
-      out.push({
-        open: true,
-        kind: m[1] as MarkerKind,
-        ident: m[2],
-        declared: m[3],
-        start: m.index,
-        end: m.index + m[0].length,
-      });
-    } else {
+    // 判别开/闭：只有关闭分支会用到 m[5]（开分支不会设置它）
+    if (m[5] !== undefined) {
       out.push({
         open: false,
-        kind: m[4] as MarkerKind,
+        kind: m[5] as MarkerKind,
         start: m.index,
         end: m.index + m[0].length,
       });
+      continue;
     }
+    const isComment = m[2] === undefined;
+    out.push({
+      open: true,
+      kind: isComment ? "comment" : (m[2] as MarkerKind),
+      ident: isComment ? undefined : m[3],
+      target: isComment ? m[1] : undefined,
+      declared: isComment ? undefined : m[4],
+      start: m.index,
+      end: m.index + m[0].length,
+    });
   }
   return out;
 }
@@ -249,11 +270,12 @@ function readArray(src: string, tokens: MarkerToken[], openIdx: number): ArrayRe
 
 /**
  * 扫描一段文本里的全部顶层标记区域。
- * @var/@range 不允许嵌套；@array 可嵌套 @array（递归解析）。
+ * @var/@range/@comment 不允许嵌套；@array 可嵌套 @array（递归解析）。
  */
 export function scanMarkers(src: string): ScanResult {
   const tokens = tokenize(src);
   const regions: InlineRegion[] = [];
+  const comments: ScannedComment[] = [];
   const issues: InlineIssue[] = [];
 
   let i = 0;
@@ -278,11 +300,11 @@ export function scanMarkers(src: string): ScanResult {
       continue;
     }
 
-    // @var / @range：下一个标记必须就是对应的关闭标记
+    // @var / @range / @comment：下一个标记必须就是对应的关闭标记
     const close = tokens[i + 1];
     const name = label(t);
     if (!close || close.open) {
-      issues.push({ at: t.start, message: `${name} 未闭合：值内不允许嵌套其它标记`, hint: NEST_HINT });
+      issues.push({ at: t.start, message: `${name} 未闭合：内容里不允许嵌套其它标记`, hint: NEST_HINT });
       i++;
       continue;
     }
@@ -298,6 +320,37 @@ export function scanMarkers(src: string): ScanResult {
     const contentStart = t.end;
     const contentEnd = close.start;
     const raw = src.slice(contentStart, contentEnd);
+    i += 2;
+
+    if (t.kind === "comment") {
+      const target = t.target;
+      if (!target) {
+        issues.push({
+          at: t.start,
+          message: "@comment 缺少 target（应写成 <!--@comment target=名字-->文本<!--@/comment-->）",
+        });
+        continue;
+      }
+      if (!TARGET_RE.test(target)) {
+        issues.push({
+          at: t.start,
+          message: `@comment 的 target 非法：${target}（不能含空白；应为变量名 / 表名 / 表.id[.列] / 块 id）`,
+        });
+        continue;
+      }
+      if (raw.trim() === "") {
+        issues.push({ at: t.start, message: "@comment 的评论内容为空" });
+        continue;
+      }
+      comments.push({
+        target: target.replace(/^\^/, ""),
+        text: raw.trim(),
+        start: t.start,
+        end: close.end,
+      });
+      continue;
+    }
+
     try {
       if (t.kind === "var") {
         if (raw.includes("\n") && t.declared !== "json" && t.declared !== "text") {
@@ -339,8 +392,7 @@ export function scanMarkers(src: string): ScanResult {
     } catch (e) {
       issues.push({ at: t.start, message: `${name}: ${(e as Error).message}` });
     }
-    i += 2;
   }
 
-  return { regions, issues };
+  return { regions, comments, issues };
 }

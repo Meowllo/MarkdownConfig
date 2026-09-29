@@ -8,7 +8,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { buildConfig, canonicalJson, parse, appendOp, readOps, allComments, openComments } from "../dist/index.js";
+import { buildConfig, canonicalJson, parse } from "../dist/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixtures = path.join(__dirname, "fixtures");
@@ -104,19 +104,88 @@ test("块扫描：标题/段落/表格与 ^id", () => {
   assert.ok(ids.includes("tbl"));
 });
 
-test("journal：append/read/comment/resolve 闭环", () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mc-journal-"));
-  const file = path.join(tmp, "x.mc");
-  fs.writeFileSync(file, "<!--@var A-->1<!--@/var-->\n", "utf8");
+test("评论区：append-only 追加、按序号删除、不进配置", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mc-comment-"));
+  const file = path.join(tmp, "c.mc");
+  const cli = path.join(__dirname, "..", "dist", "cli.js");
+  fs.writeFileSync(file, "# t\n\n超时：<!--@var X-->1<!--@/var-->\n", "utf8");
+  const run = (args) =>
+    child_process.execFileSync(process.execPath, [cli, ...args], { encoding: "utf8" });
 
-  appendOp(file, { op: "create", actor: "agent", target: "A", hash: "h1", prev_hash: null, text: "add" });
-  appendOp(file, { op: "comment", actor: "human", target: "A", text: "建议改大", id: "c-1", status: "open" });
-  appendOp(file, { op: "resolve", actor: "agent", target: "c-1", text: "resolved" });
+  assert.equal(run(["comment", file, "X", "第一条"]).trim(), "已添加评论 → X");
+  run(["comment", file, "X", "第二条"]);
+  run(["comment", file, "X", "第三条"]); // 同一目标允许多条，互不冲突
 
-  const ops = readOps(file);
-  assert.equal(ops.length, 3);
-  assert.equal(allComments(file)[0].status, "resolved");
-  assert.equal(openComments(file).length, 0);
+  const src = fs.readFileSync(file, "utf8");
+  assert.match(src, /## 评论/);
+  assert.equal(src.match(/<!--@comment/g).length, 3);
+
+  const list = JSON.parse(run(["comments", file]));
+  assert.deepEqual(
+    list.map((c) => [c.index, c.target]),
+    [
+      [1, "X"],
+      [2, "X"],
+      [3, "X"],
+    ],
+  );
+
+  // 评论不进配置，且文档仍然合法
+  assert.deepEqual(JSON.parse(run(["export", file])), { X: 1 });
+  assert.equal(run(["validate", file]).trim(), "OK");
+
+  // 删除中间一条：其余评论顺序与文本不受影响
+  assert.match(run(["resolve", file, "2"]), /已解决（删除）第 2 条/);
+  const src2 = fs.readFileSync(file, "utf8");
+  assert.equal(src2.match(/<!--@comment/g).length, 2);
+  assert.ok(!src2.includes("第二条"));
+  assert.ok(src2.includes("第一条") && src2.includes("第三条"));
+  assert.equal(run(["validate", file]).trim(), "OK");
+  assert.equal(src2.match(/\n\n\n/g), null, "删除后不应残留连续空行");
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test("评论区：目标不存在 / 序号越界 / 单元格内评论 → fail loud", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mc-comment-bad-"));
+  const file = path.join(tmp, "c.mc");
+  const cli = path.join(__dirname, "..", "dist", "cli.js");
+  fs.writeFileSync(file, "# t\n\n超时：<!--@var X-->1<!--@/var-->\n", "utf8");
+  const run = (args) =>
+    child_process.execFileSync(process.execPath, [cli, ...args], { encoding: "utf8" });
+
+  assert.throws(
+    () => run(["comment", file, "NOPE", "x"]),
+    (e) => (e.stderr ?? "").includes("目标不存在"),
+  );
+  run(["comment", file, "X", "唯一一条"]);
+  assert.throws(
+    () => run(["resolve", file, "9"]),
+    (e) => (e.stderr ?? "").includes("没有第 9 条评论"),
+  );
+
+  // 评论只能放在正文（评论区），不能塞进表格单元格
+  const inCell = parse(
+    "<!--@table T-->\n| id | v |\n| --- | --- |\n| a | <!--@comment target=x-->c<!--@/comment--> |\n<!--@/table-->\n",
+  );
+  assert.ok(inCell.errors.some((e) => /单元格内不能写评论/.test(e.message)));
+
+  // 缺 target / 空内容 / 未闭合
+  assert.ok(
+    parse("<!--@comment-->c<!--@/comment-->\n").errors.some((e) => /缺少 target/.test(e.message)),
+  );
+  assert.ok(
+    parse("<!--@comment target=x--><!--@/comment-->\n").errors.some((e) =>
+      /评论内容为空/.test(e.message),
+    ),
+  );
+  assert.ok(
+    parse("<!--@comment target=x-->c\n").errors.some((e) => /未闭合/.test(e.message)),
+  );
+
+  // 围栏里的评论只是示例：忽略，不报错、不产生评论
+  const fenced = parse("# t\n\n```text\n<!--@comment target=x-->c<!--@/comment-->\n```\n");
+  assert.equal(fenced.errors.length, 0);
+  assert.equal(fenced.comments.length, 0);
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -264,7 +333,7 @@ test("#14 正文里的标记：报错附带「示例要放围栏」的提示", (
   assert.equal(fenced.errors.length, 0);
 });
 
-test("mc set 表格单元格：按 id 命中唯一格，改写后复校验，--no-journal 不建 .mc/", () => {
+test("mc set 表格单元格：按 id 命中唯一格，改写后复校验，不产生额外文件", () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mc-set-"));
   const file = path.join(tmp, "t.mc");
   const cli = path.join(__dirname, "..", "dist", "cli.js");
@@ -286,10 +355,10 @@ test("mc set 表格单元格：按 id 命中唯一格，改写后复校验，--n
   const run = (args) => child_process.execFileSync(process.execPath, [cli, ...args], { encoding: "utf8" });
 
   assert.equal(run(["get", file, "T.slots.value"]).trim(), "4");
-  assert.equal(run(["set", file, "T.slots.value", "6", "--no-journal"]).trim(), "T.slots.value = 6");
+  assert.equal(run(["set", file, "T.slots.value", "6"]).trim(), "T.slots.value = 6");
   assert.equal(run(["get", file, "T.slots.value"]).trim(), "6");
   assert.match(fs.readFileSync(file, "utf8"), /\| slots \| 6 \| 技能格数 \|/);
-  assert.equal(fs.existsSync(path.join(tmp, ".mc")), false, "--no-journal 不应创建 .mc/");
+  assert.deepEqual(fs.readdirSync(tmp), ["t.mc"], "改写只动这一个文件，不产生 .mc/ 等额外产物");
 
   // 目标 id 不存在 → 定位失败，且报错说明可用 id
   assert.throws(

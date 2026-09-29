@@ -1,21 +1,11 @@
 /** MarkdownConfig 核心 SDK 公共入口 */
 
 import * as fs from "fs";
+import { appendComment, COMMENT_HEADING, commentMarkup, removeCommentAt } from "./comments";
 import { buildConfig, canonicalJson, declaredOrderJson, sortKeys } from "./config";
 import { inferValue, parseArrayValue, parseRangeValue } from "./infer";
-import {
-  allComments,
-  appendOp,
-  ensureJournalDir,
-  findJournalDir,
-  hashOf,
-  nextCommentId,
-  openComments,
-  prevHash,
-  readOps,
-} from "./journal";
 import { scanMarkers, tokenize } from "./markers";
-import { parse } from "./scanner";
+import { lastHeadingTitle, parse } from "./scanner";
 import { parseTable } from "./table";
 
 /** 便捷入口：读取 .mc 文件 → 配置对象（含校验结果） */
@@ -28,6 +18,7 @@ export function loadConfig(
   parseErrors: Array<{ line: number; message: string }>;
   blocks: ReturnType<typeof parse>["blocks"];
   entries: ReturnType<typeof parse>["entries"];
+  comments: ReturnType<typeof parse>["comments"];
 } {
   const source = fs.readFileSync(file, "utf8");
   const result = parse(source);
@@ -38,27 +29,24 @@ export function loadConfig(
     parseErrors: result.errors,
     blocks: result.blocks,
     entries: result.entries,
+    comments: result.comments,
   };
 }
 
 export {
-  allComments,
-  appendOp,
+  appendComment,
   buildConfig,
   canonicalJson,
+  COMMENT_HEADING,
+  commentMarkup,
   declaredOrderJson,
-  ensureJournalDir,
-  findJournalDir,
-  hashOf,
   inferValue,
-  nextCommentId,
-  openComments,
+  lastHeadingTitle,
   parse,
   parseArrayValue,
   parseRangeValue,
   parseTable,
-  prevHash,
-  readOps,
+  removeCommentAt,
   scanMarkers,
   sortKeys,
   tokenize,
@@ -66,9 +54,8 @@ export {
 export type {
   ArrayEntry,
   Block,
+  CommentEntry,
   ConfigEntry,
-  JournalOp,
-  JournalOpType,
   McError,
   ParseResult,
   RangeEntry,
@@ -78,4 +65,11 @@ export type {
   VarEntry,
   VarResolvedType,
 } from "./types";
-export type { InlineIssue, InlineRegion, MarkerKind, MarkerToken, ScanResult } from "./markers";
+export type {
+  InlineIssue,
+  InlineRegion,
+  MarkerKind,
+  MarkerToken,
+  ScanResult,
+  ScannedComment,
+} from "./markers";
