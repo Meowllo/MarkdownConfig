@@ -1,0 +1,22 @@
+{
+  "T_IDALIAS": {
+    "x": {
+      "value": 1
+    }
+  },
+  "T_PLAIN": {
+    "a": {
+      "普通列": 1
+    }
+  },
+  "T_RETRY": {
+    "api": {
+      "maxRetries": 3,
+      "备注": "只要超时才重试"
+    },
+    "batch": {
+      "maxRetries": 5,
+      "备注": null
+    }
+  }
+}

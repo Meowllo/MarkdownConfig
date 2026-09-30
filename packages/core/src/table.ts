@@ -61,6 +61,12 @@ function parseCell(cell: CellSpan): CellResult {
       error: `单元格内不能写评论（评论请统一放在文档末尾的评论区）：${cell.text.trim()}`,
     };
   }
+  if (regions.some((r) => r.kind === "col")) {
+    return {
+      value: null,
+      error: `@col 只能用在表格的表头行（数据行里不生效）：${cell.text.trim()}`,
+    };
+  }
 
   if (regions.length === 0) {
     if (cell.text.includes("<!--@")) return { value: null, error: UNCLOSED(cell.text) };
@@ -117,6 +123,54 @@ function parseCell(cell: CellSpan): CellResult {
   return { value: obj };
 }
 
+/**
+ * 表头单元格 → 程序侧列名（`key`）+ 显示名（`display`）。
+ *
+ * `@col` 是**可选**的（SPEC §2.2）：
+ * - 没写 `@col`：`key = display =` 单元格原文（既有行为，老文档零影响）；
+ * - 写了 `@col`：`key` 取 `@col` 上的列名，`display` 是**渲染后看到的文本**
+ *   —— 即"把两枚标记标签拿掉"，所以它与 Markdown 渲染器显示的内容一致。
+ *
+ * 列名是程序侧唯一的名字：`mc get/set 表.id.列名`、SDK 的 `rows()` 键、`positions` 都用它。
+ * 显示名只为人读，不进任何输出。
+ */
+function parseHeaderCell(cell: CellSpan): { key: string; display: string; error?: string } {
+  const { regions, issues } = scanMarkers(cell.text);
+  // 直接用扫描器的具体消息（如 "@col 缺少列名"），比统一的"未闭合或错配"有用得多
+  if (issues.length > 0) return { key: "", display: "", error: issues[0].message };
+
+  const cols = regions.filter((r) => r.kind === "col");
+  if (cols.length === 0) {
+    const other = regions[0];
+    if (other) {
+      return {
+        key: "",
+        display: "",
+        error: `表头单元格里不能出现 @${other.kind}（只支持 @col）：${cell.text.trim()}`,
+      };
+    }
+    return { key: cell.text, display: cell.text };
+  }
+  if (cols.length > 1) {
+    return { key: "", display: "", error: `表头单元格里最多一个 @col：${cell.text.trim()}` };
+  }
+
+  const c = cols[0];
+  if (!c.ident) {
+    return {
+      key: "",
+      display: "",
+      error: "@col 缺少列名（应写成 <!--@col KEY-->显示名<!--@/col-->）",
+    };
+  }
+  const display = (
+    cell.text.slice(0, c.start) +
+    cell.text.slice(c.contentStart, c.contentEnd) +
+    cell.text.slice(c.end)
+  ).trim();
+  return { key: c.ident, display };
+}
+
 export interface ParsedTable {
   idColumn: string;
   data: Record<string, Record<string, unknown>>;
@@ -167,7 +221,15 @@ export function parseTable(body: string, bodyStart: number, firstLine: number): 
   if (sep.length === 0 || !sep.every((c) => /^:?-{1,}:?$/.test(c.text))) {
     return { ...empty, error: "第二行必须是分隔行（如 | --- | --- |）", errorLine: clean[1].line };
   }
-  const headerNames = header.map((c) => c.text);
+  const headerNames: string[] = [];
+  for (const c of header) {
+    const h = parseHeaderCell(c);
+    if (h.error) return { ...empty, error: h.error, errorLine: clean[0].line };
+    headerNames.push(h.key);
+  }
+  if (headerNames.some((n) => n === "")) {
+    return { ...empty, error: "表头列名不能为空", errorLine: clean[0].line };
+  }
   if (new Set(headerNames).size !== headerNames.length) {
     return { ...empty, error: "表头列名重复", errorLine: clean[0].line };
   }

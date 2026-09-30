@@ -143,6 +143,11 @@ export function parse(source: string): ParseResult {
   for (const r of valueRegions) {
     if (skipAt(r.start)) continue;
     const line = lineAt(r.start);
+    if (r.kind === "col") {
+      // 表格区域内的 @col 由 parseTable 的表头解析负责；走到这里说明它在表格之外
+      errors.push({ line, message: "@col 只能用在表格的表头行" });
+      continue;
+    }
     if (!r.ident) {
       errors.push({
         line,

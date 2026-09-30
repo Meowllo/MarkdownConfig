@@ -13,6 +13,7 @@ import {
   canonicalJson,
   emitTsModule,
   fromSource,
+  inferValue,
   McConfigError,
   open,
   parse,
@@ -538,4 +539,219 @@ test("codegen：非法标识符 / value 与 literal 冲突 / 两者皆缺 → �
 test("版号单点：SDK 的 VERSION 与 package.json 一致", () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
   assert.equal(VERSION, pkg.version, "version.ts 与 package.json 版号漂移了");
+});
+
+// ---------------------------------------------------------------------------
+// 百分号（v0.7.0）—— 只在**值的末尾**生效
+// ---------------------------------------------------------------------------
+
+/** 只跑解析+组装，返回配置或错误消息列表（便于断言两种合格结果） */
+function configOf(src) {
+  const res = parse(src);
+  if (res.errors.length > 0) return { errors: res.errors.map((e) => e.message) };
+  const { config, errors } = buildConfig(res);
+  if (errors.length > 0) return { errors: errors.map((e) => e.message) };
+  return { config };
+}
+
+const val = (src) => configOf(src).config?.A;
+
+test("百分号：只在值末尾生效（5% → 0.05；5%生命值 仍是字符串）", () => {
+  assert.equal(val("<!--@var A-->5%<!--@/var-->\n"), 0.05);
+  assert.equal(val("<!--@var A-->5 %<!--@/var-->\n"), 0.05);
+  assert.equal(val("<!--@var A-->100%<!--@/var-->\n"), 1);
+  assert.equal(val("<!--@var A-->-5%<!--@/var-->\n"), -0.05);
+  assert.equal(val("<!--@var A-->0.5%<!--@/var-->\n"), 0.005);
+  assert.equal(val("<!--@var A-->2e2%<!--@/var-->\n"), 2);
+
+  // `%` 后面还有字符 → 不是百分数
+  assert.equal(val("<!--@var A-->5%生命值<!--@/var-->\n"), "5%生命值");
+  assert.equal(val("<!--@var A-->abc%<!--@/var-->\n"), "abc%");
+});
+
+test("百分号：与声明类型的交互（string/text 保留字面；number/int 按结果校验）", () => {
+  assert.equal(val("<!--@var A type=string-->5%<!--@/var-->\n"), "5%");
+  assert.equal(val("<!--@var A type=text-->5%<!--@/var-->\n"), "5%");
+  assert.equal(val("<!--@var A type=number-->5%<!--@/var-->\n"), 0.05);
+  assert.equal(val("<!--@var A type=int-->200%<!--@/var-->\n"), 2);
+  // 50% = 0.5 不是整数 → fail loud
+  assert.match(configOf("<!--@var A type=int-->50%<!--@/var-->\n").errors.join(), /不是整数/);
+  // 声明为 boolean/json 时不做百分号解释 → 报错（原行为）
+  assert.ok(configOf('<!--@var A type=boolean-->5%<!--@/var-->\n').errors);
+  assert.ok(configOf('<!--@var A type=json-->5%<!--@/var-->\n').errors);
+});
+
+test("百分号：数组两种写法等价，混用一律报错（不猜）", () => {
+  assert.deepEqual(val("<!--@array A-->5%/10%/15%<!--@/array-->\n"), [0.05, 0.1, 0.15]);
+  // 整段单位：末尾一个不与数字相连的 `%`
+  assert.deepEqual(val("<!--@array A-->5/10/15 %<!--@/array-->\n"), [0.05, 0.1, 0.15]);
+  assert.deepEqual(val("<!--@array A-->5/10 %<!--@/array-->\n"), [0.05, 0.1]);
+
+  for (const src of [
+    "<!--@array A-->5/10%/15<!--@/array-->\n", // 部分带 %
+    "<!--@array A-->5/10/15%<!--@/array-->\n", // 紧贴 → 只有最后一元素带 %
+    "<!--@array A-->5%/10 <!--@/array-->\n", // 同上，另一种排列
+  ]) {
+    assert.match(configOf(src).errors.join(), /混用/, src);
+  }
+  // 整段单位只能作用于数字
+  assert.match(configOf("<!--@array A-->a/b %<!--@/array-->\n").errors.join(), /不是数字/);
+  // % 与嵌套 @array 不能共存（否则 % 会被当注释静默丢掉）
+  assert.match(
+    configOf("<!--@array A-->5%/<!--@array-->1/2<!--@/array--><!--@/array-->\n").errors.join(),
+    /不能与嵌套 @array 混/,
+  );
+  assert.match(
+    configOf("<!--@array A-->5/<!--@array-->1/2<!--@/array--> %<!--@/array-->\n").errors.join(),
+    /不能贴在嵌套 @array/,
+  );
+  // 都不带 % → 普通数组，不受影响
+  assert.deepEqual(val("<!--@array A-->5/10/15<!--@/array-->\n"), [5, 10, 15]);
+});
+
+test("百分号：@range 两端一致；表格单元格同标量规则", () => {
+  assert.deepEqual(val("<!--@range A-->1%~5%<!--@/range-->\n"), { min: 0.01, max: 0.05 });
+  assert.deepEqual(val("<!--@range A-->1~5<!--@/range-->\n"), { min: 1, max: 5 });
+  assert.match(configOf("<!--@range A-->1%~5<!--@/range-->\n").errors.join(), /要么都带/);
+
+  const cell = configOf("<!--@table A-->\n| id | v |\n| --- | --- |\n| a | 5% |\n<!--@/table-->\n");
+  assert.deepEqual(cell.config.A, { a: { v: 0.05 } });
+});
+
+test("百分号：n/100 与十进制字面量是同一个 double（canonical 输出不抖）", () => {
+  for (const [pct, lit] of [[5, 0.05], [10, 0.1], [15, 0.15], [29, 0.29], [12.5, 0.125]]) {
+    assert.equal(inferValue(`${pct}%`).value, lit, `${pct}% 的小数形式应与字面量一致`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// @col 列名别名（v0.7.0）—— 程序侧列名与文档显示名分离
+// ---------------------------------------------------------------------------
+
+const TBL = (header, row) =>
+  `<!--@table T-->\n| ${header} |\n| --- |\n| ${row} |\n<!--@/table-->\n`;
+
+test("@col：导出列名取 @col 的值；未标注时沿用表头文本（零影响）", () => {
+  const withAlias = configOf(
+    TBL("id | <!--@col maxRetries-->最大重试次数<!--@/col-->", "a | 5"),
+  );
+  assert.deepEqual(withAlias.config.T, { a: { maxRetries: 5 } });
+
+  const noAlias = configOf(TBL("id | 普通列", "a | 5"));
+  assert.deepEqual(noAlias.config.T, { a: { 普通列: 5 } });
+
+  // 同一张表里可以混用：标注的用列名，没标注的用表头
+  const mixed = configOf(
+    TBL("id | <!--@col maxRetries-->最大重试次数<!--@/col--> | 备注", "api | 3 | 超时才重试"),
+  );
+  assert.deepEqual(mixed.config.T, { api: { maxRetries: 3, 备注: "超时才重试" } });
+
+  // id 列也可以标（只影响显示，id 列名不进数据）
+  const idAlias = configOf(TBL("<!--@col id-->编号<!--@/col--> | v", "x | 1"));
+  assert.deepEqual(idAlias.config.T, { x: { v: 1 } });
+});
+
+test("@col：读取层的列名与寻址都用程序侧列名（rows() / cell() / positions）", () => {
+  const doc = fromSource(
+    TBL("id | <!--@col maxRetries-->最大重试次数<!--@/col-->", "api | 3"),
+  );
+  const t = doc.table("T");
+  assert.deepEqual(t.columns, ["id", "maxRetries"]);
+  assert.deepEqual(t.rows, [{ id: "api", maxRetries: 3 }]);
+  assert.equal(doc.cell("T", "api", "maxRetries"), 3);
+  // 显示名不是程序侧名字
+  assert.throws(() => doc.cell("T", "api", "最大重试次数"), McConfigError);
+});
+
+test("@col：错误用法 fail loud（位置 / 重复 / 缺列名 / 与其它标记混用）", () => {
+  // 顶层
+  assert.match(
+    configOf("<!--@col key-->显示<!--@/col-->\n").errors.join(),
+    /只能用在表格的表头行/,
+  );
+  // 数据行单元格
+  assert.match(configOf(TBL("id | v", "a | <!--@col x-->y<!--@/col-->")).errors.join(), /只能用在表格的表头行/);
+  // 缺列名
+  assert.match(configOf(TBL("id | <!--@col-->显示<!--@/col-->", "a | 5")).errors.join(), /缺少列名/);
+  // 一个表头单元格里多个 @col
+  assert.match(
+    configOf(TBL("id | <!--@col a-->x<!--@/col--><!--@col b-->y<!--@/col-->", "a | 5")).errors.join(),
+    /最多一个 @col/,
+  );
+  // 表头里出现其它标记
+  assert.match(configOf(TBL("id | <!--@var X-->1<!--@/var-->", "a | 5")).errors.join(), /不能出现 @var/);
+  // 列名重复（两个 @col 用同一个列名）
+  assert.match(
+    configOf(TBL("<!--@col k-->甲<!--@/col--> | <!--@col k-->乙<!--@/col-->", "1 | 2")).errors.join(),
+    /列名重复/,
+  );
+  // 表头列名为空
+  assert.match(configOf(TBL("id | ", "a | 5")).errors.join(), /列名不能为空/);
+});
+
+test("@col：显示名是「渲染后看到的文本」（标记标签去掉，其余保留）", () => {
+  // 这里只断言列名解析仍正确；显示名不进入任何输出（见 SPEC：显示名只为人读）
+  const r = configOf(TBL("id | 前缀<!--@col k-->名<!--@/col-->后缀", "a | 5"));
+  assert.deepEqual(r.config.T, { a: { k: 5 } });
+});
+
+// ---------------------------------------------------------------------------
+// #16：单元格内匿名 @array + 组外文本
+// ---------------------------------------------------------------------------
+
+test("#16 单元格内匿名 @array + 组外文本：取到数组值，且不再泄漏占位符", () => {
+  const cases = [
+    ["| a | <!--@array-->5/10/15<!--@/array--> 说明 |", { a: { val: [[5, 10, 15]] } }],
+    ["| a | 说明 <!--@array-->5/10/15<!--@/array--> |", { a: { val: [[5, 10, 15]] } }],
+    // 文档化写法必须保持不变（#6 的语义）：标记外的文本段也是元素
+    ["| a | A/B/<!--@array-->C/D<!--@/array--> |", { a: { val: ["A", "B", ["C", "D"]] } }],
+    // 具名内联 @array + 尾巴（#6 已修，必须保持）
+    ["| a | <!--@array tags-->5/10<!--@/array--> 尾巴 |", { a: { val: [5, 10] } }],
+  ];
+  for (const [row, expected] of cases) {
+    const r = configOf(`<!--@table T-->\n| id | val |\n| --- | --- |\n${row}\n<!--@/table-->\n`);
+    assert.deepEqual(r.config.T, expected, row);
+  }
+
+  // 一个元素里塞多个标记 → 报错（不猜谁是注释）
+  const bad = configOf(
+    "<!--@table T-->\n| id | val |\n| --- | --- |\n| a | <!--@var Y-->1<!--@/var--> <!--@array-->5/10<!--@/array--> |\n<!--@/table-->\n",
+  );
+  assert.match(bad.errors.join(), /一个元素里出现了多个标记/);
+});
+
+test("#16 守卫：占位符不得泄漏进任何值（inferValue 是唯一入口）", () => {
+  assert.throws(() => inferValue("\u00000\u0000 尾巴"), /内部占位符/);
+
+  // 对抗性语料：凡是"能解析成功"的，导出值里就不得含 NUL；报错的也算合格（fail loud）
+  const adversarial = [
+    "<!--@table T-->\n| id | val |\n| --- | --- |\n| a | <!--@array-->5/10<!--@/array--> 尾巴 |\n<!--@/table-->\n",
+    "<!--@table T-->\n| id | val |\n| --- | --- |\n| a | 前缀 <!--@array-->5/10<!--@/array--> |\n<!--@/table-->\n",
+    "<!--@table T-->\n| id | val |\n| --- | --- |\n| a | <!--@var Y-->1<!--@/var--> <!--@array-->5/10<!--@/array--> |\n<!--@/table-->\n",
+    "<!--@table T-->\n| id | val |\n| --- | --- |\n| a | <!--@array-->5/10<!--@/array--> |\n<!--@/table-->\n",
+    "<!--@table T-->\n| id | val |\n| --- | --- |\n| a | <!--@array-->x/<!--@array-->1/2<!--@/array--><!--@/array--> |\n<!--@/table-->\n",
+    "<!--@array A-->1/<!--@array-->3/4<!--@/array--> 尾巴<!--@/array-->\n",
+  ];
+  let ok = 0;
+  for (const src of adversarial) {
+    const r = configOf(src);
+    if (r.errors) continue; // fail loud 也是合格结果
+    const json = canonicalJson(r.config);
+    assert.ok(!json.includes("\u0000"), `导出值泄漏了内部占位符：${src}\n${json}`);
+    ok++;
+  }
+  assert.ok(ok > 0, "至少应有一个对抗性用例走通");
+});
+
+test("#16 次要项：无名 @array 独占整格会多包一层（文档已写明）", () => {
+  const anon = configOf(
+    "<!--@table T-->\n| id | val |\n| --- | --- |\n| a | <!--@array-->5/10/15<!--@/array--> |\n<!--@/table-->\n",
+  );
+  assert.deepEqual(anon.config.T, { a: { val: [[5, 10, 15]] } });
+
+  // 想要裸数组 → 用**具名** @array（一格一个具名标记 = 裸值）
+  const named = configOf(
+    "<!--@table T-->\n| id | val |\n| --- | --- |\n| a | <!--@array val-->5/10/15<!--@/array--> |\n<!--@/table-->\n",
+  );
+  assert.deepEqual(named.config.T, { a: { val: [5, 10, 15] } });
 });

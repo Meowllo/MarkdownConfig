@@ -6,10 +6,10 @@
  * 本模块是**唯一实现**，其余模块只消费 scanMarkers() 的结果。
  */
 
-import { inferValue, parseRangeValue } from "./infer";
+import { inferValue, normalizeArrayPercent, parseRangeValue, PH } from "./infer";
 import type { CommentEntry } from "./types";
 
-export type MarkerKind = "var" | "array" | "range" | "comment";
+export type MarkerKind = "var" | "array" | "range" | "comment" | "col";
 
 export interface MarkerToken {
   open: boolean;
@@ -67,9 +67,12 @@ interface ArrayRead {
  * 名称可省略（无名嵌套 @array）；@comment 用 target= 属性。
  * target 用 `[^>\n]+?` 且**非贪婪**：否则正文不含空格时会把 `-->` 一起吞掉，
  * 连关闭标记 `<!--@/comment-->` 也被吃掉（正文里没有空白就一路吃到底）。
+ *
+ * `col` 是表头专用标记（`<!--@col KEY-->显示名<!--@/col-->`），写法与 @var 同构：
+ * 列名写在开标记上，标记之间是**显示名**（渲染时可见，因为标记本身隐藏）。
  */
 const TOKEN_RE =
-  /<!--@comment(?:\s+target=([^>\n]+?))?\s*-->|<!--@(var|array|range)(?:\s+([A-Za-z_][\w.-]*))?(?:\s+type=([A-Za-z]+))?\s*-->|<!--@\/(var|array|range|comment)\s*-->/g;
+  /<!--@comment(?:\s+target=([^>\n]+?))?\s*-->|<!--@(var|array|range|col)(?:\s+([A-Za-z_][\w.-]*))?(?:\s+type=([A-Za-z]+))?\s*-->|<!--@\/(var|array|range|comment|col)\s*-->/g;
 
 /**
  * target 只要求"非空且不含空白"：变量名/表名是 ASCII，但 `表.id.列` 里的
@@ -77,9 +80,11 @@ const TOKEN_RE =
  */
 const TARGET_RE = /^\^?\S+$/;
 
-/** 占位符：把已解析的嵌套区域替换成单个不可与正文混淆的元素，再按 `/` 切分 */
-const PH = "\u0000";
-const PH_RE = /^\u0000(\d+)\u0000$/;
+/**
+ * 占位符：把已解析的嵌套子区域替换成单个不可与正文混淆的元素，再按 `/` 切分。
+ * 常量本体定义在 infer.ts（值层的守卫要用它做不变式断言），这里只负责识别。
+ */
+const PH_RE = new RegExp(`${PH}(\\d+)${PH}`, "g");
 
 const NEST_HINT =
   "正文里的标记会被当成真配置。若这只是一段说明或示例，请把它放进 ``` 围栏代码块。";
@@ -130,7 +135,15 @@ interface ArrayChild {
  *
  * 内外两个调用方共用这一处实现：
  * - 顶层/嵌套 `@array` 的标记之间（readArray）
- * - 表格单元格（整格即一个数组体）
+ * - 表格单元格（整格即一个数组体，"格内有无名 @array"走的就是这条路）
+ *
+ * ## 占位符还原（#16 的修复点）
+ * 子区域先被换成 `PH + 序号 + PH`。旧实现只认"整个元素恰好是一个占位符"（`^…$` 锚定），
+ * 于是 `PH + 尾巴文本` 既不还原、也不报错，直接落进 `inferValue` 变成含真 NUL 的字符串
+ * —— 静默丢数据，且 `mc validate` 还是绿的。现在按元素里**占位符的个数**分三种处理：
+ * - 0 个 → 普通文本元素；
+ * - 恰 1 个 → 取该子区域的值，元素里的其它文本是**人读注释**（与 #6 对齐）；
+ * - ≥2 个 → **报错**（谁是谁的注释无法判定，不猜）。
  */
 export function splitArrayBody(
   src: string,
@@ -153,11 +166,28 @@ export function splitArrayBody(
   const text = body.trim();
   if (text === "") return value;
 
-  for (const rawEl of text.split("/")) {
+  const where = name ? name + " " : "";
+  // 先按 `/` 切分，再定百分号模式（整段单位 vs 逐元素；混用报错）
+  const plan = normalizeArrayPercent(text.split("/").map((el) => el.trim()));
+  if (plan.error) {
+    issues.push({ at: errAt, message: `${where}${plan.error}` });
+    return value;
+  }
+
+  for (const rawEl of plan.elements) {
     const el = rawEl.trim();
-    const ph = el.match(PH_RE);
-    if (ph) {
-      const c = children[Number(ph[1])];
+    const marks = [...el.matchAll(PH_RE)];
+    if (marks.length > 1) {
+      issues.push({
+        at: errAt,
+        message:
+          `${where}一个元素里出现了多个标记（请用 / 分隔它们，或给标记命名）：` +
+          `${el.replace(PH_RE, "«标记»")}`,
+      });
+      continue;
+    }
+    if (marks.length === 1) {
+      const c = children[Number(marks[0][1])];
       value.push(c.ident ? { [c.ident]: c.value } : c.value);
       continue;
     }
@@ -166,7 +196,7 @@ export function splitArrayBody(
     } catch (e) {
       issues.push({
         at: errAt,
-        message: `${name ? name + " " : ""}元素解析失败：${(e as Error).message}`,
+        message: `${where}元素解析失败：${(e as Error).message}`,
       });
     }
   }
@@ -270,7 +300,7 @@ function readArray(src: string, tokens: MarkerToken[], openIdx: number): ArrayRe
 
 /**
  * 扫描一段文本里的全部顶层标记区域。
- * @var/@range/@comment 不允许嵌套；@array 可嵌套 @array（递归解析）。
+ * `@var` / `@range` / `@comment` / `@col` 不允许嵌套；`@array` 可嵌套 `@array`（递归解析）。
  */
 export function scanMarkers(src: string): ScanResult {
   const tokens = tokenize(src);
@@ -372,23 +402,48 @@ export function scanMarkers(src: string): ScanResult {
             contentEnd,
           });
         }
-      } else {
-        if (raw.includes("\n")) {
-          issues.push({ at: t.start, message: `${name} 必须写在一行（形如 1~5）` });
-        } else {
-          regions.push({
-            kind: "range",
-            ident: t.ident,
-            declared: t.declared,
-            type: "range",
-            value: parseRangeValue(raw).value,
-            start: t.start,
-            end: close.end,
-            contentStart,
-            contentEnd,
-          });
-        }
+    } else if (t.kind === "col") {
+      // 表头列名别名：列名写在开标记上，标记之间是**显示名**（渲染时可见，因为标记隐藏）。
+      // "只能用在表头行"分别由 scanner（顶层位置）与 table.ts（数据单元格）把关。
+      if (!t.ident) {
+        issues.push({
+          at: t.start,
+          message: "@col 缺少列名（应写成 <!--@col KEY-->显示名<!--@/col-->）",
+        });
+        continue;
       }
+      if (raw.includes("\n")) {
+        issues.push({ at: t.start, message: "@col 必须写在一行" });
+        continue;
+      }
+      regions.push({
+        kind: "col",
+        ident: t.ident,
+        declared: undefined,
+        type: "col",
+        value: raw.trim(),
+        start: t.start,
+        end: close.end,
+        contentStart,
+        contentEnd,
+      });
+    } else {
+      if (raw.includes("\n")) {
+        issues.push({ at: t.start, message: `${name} 必须写在一行（形如 1~5）` });
+      } else {
+        regions.push({
+          kind: "range",
+          ident: t.ident,
+          declared: t.declared,
+          type: "range",
+          value: parseRangeValue(raw).value,
+          start: t.start,
+          end: close.end,
+          contentStart,
+          contentEnd,
+        });
+      }
+    }
     } catch (e) {
       issues.push({ at: t.start, message: `${name}: ${(e as Error).message}` });
     }
