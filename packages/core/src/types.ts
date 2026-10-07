@@ -54,12 +54,34 @@ export interface ArrayEntry {
 }
 
 /** 单元格在源文本中的位置（供 mc set 就地写入） */
+/**
+ * 单元格内一个**可写片段**（v0.7.1）：格内每个内联标记各一个。
+ * `mc set 表.id.列#名字|#序号` 就是靠它只替换一个片段，句子与同格其它标记一个字节都不动。
+ */
+export interface TableCellPart {
+  /** 标记名；无名内联标记（匿名 @array）为 undefined */
+  ident?: string;
+  /** 格内出现顺序，1-based（跨具名 / 无名统一编号） */
+  index: number;
+  /** 标记内**值文本**的区间 [start, end)（即开标记之后、关标记之前） */
+  start: number;
+  end: number;
+  /**
+   * 该片段自己的值。
+   * 注意无名 `@array` 给的是**它那个组**（`[8,7]`），不是整格的数组（`[[8,7]]`）——
+   * 选择器寻址的是"标记"，所以写进去什么就读回什么。
+   */
+  value: unknown;
+}
+
 export interface TableCellPos {
   /** 整格文本（trim 后）的字符区间 [start, end) */
   start: number;
   end: number;
   /** 该格恰为一个内联标记时，标记内值文本的区间 */
   inner?: { start: number; end: number };
+  /** 格内各内联标记的可写片段；无标记的格没有这个字段 */
+  parts?: TableCellPart[];
 }
 
 export interface TableRowPos {

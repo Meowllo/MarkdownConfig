@@ -8,7 +8,7 @@
 
 import { inferValue } from "./infer";
 import { scanMarkers, splitArrayBody } from "./markers";
-import type { TableCellPos, TableRowPos } from "./types";
+import type { TableCellPart, TableCellPos, TableRowPos } from "./types";
 
 interface CellSpan {
   /** 单元格文本（trim 后） */
@@ -47,10 +47,26 @@ function splitCells(line: string, absLineStart: number): CellSpan[] {
 interface CellResult {
   value: unknown;
   inner?: { start: number; end: number };
+  /** 格内各内联标记的可写片段（v0.7.1，供 `mc set …列#标记名` 精确定位） */
+  parts?: TableCellPart[];
   error?: string;
 }
 
 const UNCLOSED = (cell: string): string => `单元格内联标记未闭合或错配：${cell.trim()}`;
+
+/**
+ * 把格内扫描到的标记转成可写片段（v0.7.1）。
+ * 只取**顶层**区域 —— 嵌套子区域不算独立片段（它们的区间落在父区域内）。
+ */
+function partsOf(cell: CellSpan, regions: ReturnType<typeof scanMarkers>["regions"]): TableCellPart[] {
+  return regions.map((r, i) => ({
+    ident: r.ident,
+    index: i + 1,
+    start: cell.absStart + r.contentStart,
+    end: cell.absStart + r.contentEnd,
+    value: r.value,
+  }));
+}
 
 function parseCell(cell: CellSpan): CellResult {
   const { regions, comments, issues } = scanMarkers(cell.text);
@@ -83,6 +99,9 @@ function parseCell(cell: CellSpan): CellResult {
   residual += cell.text.slice(cur);
   if (residual.includes("<!--@")) return { value: null, error: UNCLOSED(cell.text) };
 
+  // v0.7.1：格内每个标记都是可独立寻址/改写的片段（无名 @array 也有，故下面三个分支都带 parts）
+  const parts = partsOf(cell, regions);
+
   // 格内出现**无名** `@array` → 整格就是一个数组体（与顶层 @array 的值同一套切分规则）
   // 例：`A/B/<!--@array-->C/D<!--@/array-->` → ["A","B",["C","D"]]
   if (regions.some((r) => r.kind === "array" && !r.ident)) {
@@ -97,7 +116,7 @@ function parseCell(cell: CellSpan): CellResult {
       0,
     );
     if (bodyIssues.length > 0) return { value: null, error: bodyIssues[0].message };
-    return { value };
+    return { value, parts };
   }
 
   if (regions.length === 1) {
@@ -106,6 +125,7 @@ function parseCell(cell: CellSpan): CellResult {
     return {
       value: r.value,
       inner: { start: cell.absStart + r.contentStart, end: cell.absStart + r.contentEnd },
+      parts,
     };
   }
 
@@ -120,7 +140,7 @@ function parseCell(cell: CellSpan): CellResult {
     }
     obj[r.ident] = r.value;
   }
-  return { value: obj };
+  return { value: obj, parts };
 }
 
 /**
@@ -270,6 +290,7 @@ export function parseTable(body: string, bodyStart: number, firstLine: number): 
       const r = parseCell(cell);
       if (r.error) return { ...empty, error: r.error, errorLine: rowLine.line };
       if (r.inner) pos.inner = r.inner;
+      if (r.parts) pos.parts = r.parts;
       row[headerNames[j]] = r.value;
       cellPos[headerNames[j]] = pos;
     }

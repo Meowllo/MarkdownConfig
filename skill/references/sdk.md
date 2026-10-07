@@ -64,6 +64,7 @@ doc.raw;                                     // 原始序列化形状（逃生�
 | `ids` | id 列表，按文档行序 |
 | `value(name)` | 字面名优先，其次按 `.` 拆路径逐级下钻（`server.port`） |
 | 行的键 | **程序侧列名** —— 表头写了 `@col` 时是 `@col` 的值，否则是表头文本；**不是**文档里显示的列名 |
+| 访问格内某个内联标记 | `doc.cell("T", id, "效果")["dmg"]` —— 单元格值是对象时直接索引即可（**不需要**新 API；`mc` 侧的 `列#标记名` 寻址只是为了命令行扁平地址） |
 
 举例：v0.5.0 把表格的**导出形状**从"对象数组"改成了 `{id: {其余列}}`，但 `rows()` 一直保持数组 —— 所以写成下面这样的下游代码**跨版本都不用改**：
 
@@ -132,7 +133,7 @@ writeFileSync("generated/config.gen.ts", text);
 /** 来源指纹（源文本的 sha256）—— 离线门禁用它核对「生成物是否过期」 */
 export const SOURCE_SHA256 = "cacc2ba1…";
 /** 生成时用的 mc 版本 —— 便于发现「生成物是旧版工具产出的」 */
-export const SOURCE_MC_VERSION = "0.7.0";
+export const SOURCE_MC_VERSION = "0.7.1";
 
 /** 最大槽位数 */
 export const MAX_SLOTS = 4;

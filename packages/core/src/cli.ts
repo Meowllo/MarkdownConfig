@@ -8,7 +8,7 @@ import { buildConfig, canonicalJson, declaredOrderJson } from "./config";
 import { makeFingerprint } from "./fingerprint";
 import { inferValue } from "./infer";
 import { parse } from "./scanner";
-import type { McError, ParseResult, TableEntry, VarEntry } from "./types";
+import type { McError, ParseResult, TableCellPart, TableCellPos, TableEntry, VarEntry } from "./types";
 import { VERSION } from "./version";
 
 const HELP = `MarkdownConfig CLI v${VERSION}
@@ -16,11 +16,13 @@ const HELP = `MarkdownConfig CLI v${VERSION}
 用法:
   mc export <file> [--order=declared] [--allow-override] [--fingerprint]  导出配置为 JSON（canonical，字节稳定）
   mc get <file> <name>                                     读取变量 / 表格 / 表格单元格
+  mc get <file> <TABLE>.<id>.<列>#<标记名|#序号>           读取该格内某个内联标记的值
   mc validate <file>                                       校验标记，错误带行号
   mc blocks <file>                                         列出块（id/type/行号）
   mc tables <file> [--all]                                 列出已标记表 + 未标记表计数
   mc set <file> <name> <value>                             就地修改变量值
   mc set <file> <TABLE>.<id>.<列> <value>                  就地修改表格单元格
+  mc set <file> <TABLE>.<id>.<列>#<标记名|#序号> <value>    只改该格内某个内联标记的值（句子与同格其它标记不动）
   mc add <file> <name> <value> [--type=TYPE]                文件末尾新增变量
   mc comment <file> <target> <text>                        追加评论到文末评论区
   mc comments <file>                                       列出评论（带序号，供 resolve 用）
@@ -123,6 +125,59 @@ function resolveTable(
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// 片段选择器（v0.7.1）：`列#标记名` / `列#序号`
+// ---------------------------------------------------------------------------
+
+const hasOwn = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
+
+/**
+ * 把列段拆成 `{ col, sel }`。
+ * - 只在**列**这一段拆，id 里的 `#` 不受影响（`表.a#b.列` 的 id 仍是 `a#b`）；
+ * - 整段恰好是一个**已存在的列名**时不当选择器 —— 这样 `C#` 这类列名照样能寻址；
+ * - 结尾的 `#`（如 `C#`）不算选择器。
+ */
+function splitSelector(col: string, isCol: (c: string) => boolean): { col: string; sel?: string } {
+  const i = col.lastIndexOf("#");
+  if (i <= 0) return { col };
+  const sel = col.slice(i + 1);
+  if (sel === "") return { col };
+  if (isCol(col)) return { col };
+  return { col: col.slice(0, i), sel };
+}
+
+/** 片段的可选值写法：`#2 dmg` / `#1`（无名标记没有名字） */
+function partLabel(p: TableCellPart): string {
+  return `#${p.index}${p.ident ? " " + p.ident : ""}`;
+}
+
+/**
+ * 在格内片段里按名字或序号找一个；找不到时 fail loud 并**列出可选片段**
+ * —— 与"可选列"的体验保持一致。
+ */
+function findPart(pos: TableCellPos, sel: string, tableName: string, col: string): TableCellPart {
+  const parts = pos.parts ?? [];
+  const where = `表格 ${tableName} 的 ${col} 列`;
+  if (parts.length === 0) {
+    fail(
+      `${where}这一格没有内联标记，无法用 # 寻址。\n` +
+        `     去掉 #${sel} 就是整格替换（会丢掉这一格的全部内容）。`,
+    );
+  }
+  const byName = parts.find((p) => p.ident === sel);
+  if (byName) return byName;
+  if (/^\d+$/.test(sel)) {
+    const byIndex = parts.find((p) => p.index === Number(sel));
+    if (byIndex) return byIndex;
+  }
+  fail(`${where}这一格没有标记 ${sel}（可选：${parts.map(partLabel).join("、")}）`);
+}
+
+/** 片段值比较（值都是 JSON 形状，序列化后逐字节比即可） */
+function sameValue(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 function cmdGet(pos: string[], _flags: Record<string, string | boolean>): void {
   const [file, name] = pos;
   if (!file || !name) fail("用法: mc get <file> <name>");
@@ -141,12 +196,20 @@ function cmdGet(pos: string[], _flags: Record<string, string | boolean>): void {
     }
     const cells = target.table.positions[target.id]?.cells ?? {};
     if (target.col === undefined) val = row;
-    else if (!Object.prototype.hasOwnProperty.call(cells, target.col)) {
-      fail(
-        `表格 ${target.table.name} 中不存在列: ${target.col}（可选：${Object.keys(cells).join(", ")}）`,
-      );
-    } else if (target.col === target.table.idColumn) val = target.id;
-    else val = row[target.col];
+    else {
+      const { col, sel } = splitSelector(target.col, (c) => hasOwn(cells, c));
+      if (!hasOwn(cells, col)) {
+        fail(
+          `表格 ${target.table.name} 中不存在列: ${col}（可选：${Object.keys(cells).join(", ")}）`,
+        );
+      }
+      if (sel !== undefined) {
+        // v0.7.1：寻址到格内的一个内联标记
+        if (col === target.table.idColumn) fail("id 列不支持按标记读取（改它等于改行 id）");
+        val = findPart(cells[col], sel, target.table.name, col).value;
+      } else if (col === target.table.idColumn) val = target.id;
+      else val = row[col];
+    }
   }
   process.stdout.write(JSON.stringify(val) + "\n");
 }
@@ -284,9 +347,11 @@ function setTableCell(
       `表格 ${table.name} 中不存在 id: ${id}（现有 id: ${Object.keys(table.data).join(", ") || "（空表）"}）`,
     );
   }
-  const allCols = Object.keys(table.positions[id].cells);
+  const cellsAll = table.positions[id].cells;
+  const allCols = Object.keys(cellsAll);
   const dataCols = Object.keys(row);
   let col = target.col;
+  let sel: string | undefined;
   if (col === undefined) {
     if (dataCols.length !== 1) {
       fail(
@@ -295,16 +360,45 @@ function setTableCell(
       );
     }
     col = dataCols[0];
+  } else {
+    const r = splitSelector(col, (c) => hasOwn(cellsAll, c));
+    col = r.col;
+    sel = r.sel;
   }
-  const pos = table.positions[id]?.cells[col];
+  const pos = cellsAll[col];
   if (!pos) {
     fail(`表格 ${table.name} 中不存在列 ${col}（可选：${allCols.join(", ")}）`);
   }
   if (value.includes("|")) fail("值不能包含 |（会破坏表格结构）");
 
-  // 单标记单元格 → 只替换标记内文本，标记与"尾巴"人读注释原样保留
-  const from = pos.inner ? pos.inner.start : pos.start;
-  const to = pos.inner ? pos.inner.end : pos.end;
+  let from: number;
+  let to: number;
+  let suffix = "";
+  let targetPart: TableCellPart | undefined;
+  if (sel !== undefined) {
+    // v0.7.1：只替换这一个片段的值文本 —— 句子与同格其它标记一个字节都不动
+    if (col === table.idColumn) {
+      fail("id 列不支持按标记改（改它等于改行 id，会让这一行的寻址地址变化）");
+    }
+    targetPart = findPart(pos, sel, table.name, col);
+    from = targetPart.start;
+    to = targetPart.end;
+    suffix = `#${targetPart.ident ?? targetPart.index}`;
+  } else if (pos.inner) {
+    // 单具名标记单元格 → 只替换标记内文本，标记与"尾巴"人读注释原样保留（既有行为）
+    from = pos.inner.start;
+    to = pos.inner.end;
+  } else {
+    from = pos.start;
+    to = pos.end;
+    // 整格替换会丢掉句子与标记：给一条**非阻塞**提示（不改变既有行为，只是让新写法可发现）
+    if (pos.parts && pos.parts.length > 0) {
+      process.stderr.write(
+        `提示：${table.name}.${id}.${col} 这一格含 ${pos.parts.length} 个内联标记（${pos.parts.map(partLabel).join("、")}），\n` +
+          `      整格替换会丢弃句子与标记；只想改某个值请用 ${table.name}.${id}.${col}#标记名\n`,
+      );
+    }
+  }
   const newSource = source.slice(0, from) + value + source.slice(to);
 
   const after = parse(newSource);
@@ -321,9 +415,25 @@ function setTableCell(
   if (!verifiedRow || (col !== table.idColumn && !(col in verifiedRow))) {
     fail(`改写后无法按 ${table.name}.${id}.${col} 定位，已放弃（文件未修改）`);
   }
+  if (targetPart) {
+    // 目标片段仍在原位（序号是稳定的：只换了它内部的值文本），且同格**其它**片段一个都没变。
+    // 这条不是空话：新值里若含 `/`，理论上可能与相邻文本合并成一个元素，把邻居的值改掉。
+    const afterParts = verified?.positions[expectId]?.cells[col]?.parts ?? [];
+    const stillThere = afterParts.find((p) => p.index === targetPart!.index);
+    if (!stillThere || stillThere.ident !== targetPart.ident) {
+      fail(`改写后标记 ${sel} 不在原位，已放弃（文件未修改）`);
+    }
+    for (const p of pos.parts ?? []) {
+      if (p.index === targetPart.index) continue;
+      const q = afterParts.find((x) => x.index === p.index);
+      if (!q || !sameValue(q.value, p.value)) {
+        fail(`改写影响了同格的其它标记（${partLabel(p)}），已放弃（文件未修改）`);
+      }
+    }
+  }
 
   fs.writeFileSync(abs, newSource, "utf8");
-  process.stdout.write(`${table.name}.${id}.${col} = ${value}\n`);
+  process.stdout.write(`${table.name}.${id}.${col}${suffix} = ${value}\n`);
 }
 
 function cmdAdd(pos: string[], flags: Record<string, string | boolean>): void {

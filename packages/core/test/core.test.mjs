@@ -536,8 +536,7 @@ test("codegen：非法标识符 / value 与 literal 冲突 / 两者皆缺 → �
   assert.throws(() => emitTsModule({ consts: [{ name: "X" }] }), /必须给出 value 或 literal/);
 });
 
-test("版号单点：SDK 的 VERSION 与 package.json 一致", () => {
-  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+test("版号单点：SDK 的 VERSION 与 package.json 一致", () => {  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
   assert.equal(VERSION, pkg.version, "version.ts 与 package.json 版号漂移了");
 });
 
@@ -754,4 +753,227 @@ test("#16 次要项：无名 @array 独占整格会多包一层（文档已写�
     "<!--@table T-->\n| id | val |\n| --- | --- |\n| a | <!--@array val-->5/10/15<!--@/array--> |\n<!--@/table-->\n",
   );
   assert.deepEqual(named.config.T, { a: { val: [5, 10, 15] } });
+});
+
+// ---------------------------------------------------------------------------
+// 片段寻址 `列#标记名` / `列#序号`（v0.7.1）—— 让"数值写在句子里"也能被精确改
+// ---------------------------------------------------------------------------
+
+const INLINE_SRC = [
+  "# t",
+  "",
+  "<!--@table T-->",
+  "| id | 效果 | 备注 |",
+  "| --- | --- | --- |",
+  "| multi | 身周 <!--@array range-->150<!--@/array--> px，每次 <!--@array dmg-->9/15<!--@/array--> 点 | 说明一 |",
+  "| anon | 纯数值 <!--@array-->7/8<!--@/array--> | |",
+  "| plain | 就是一句话 | |",
+  "<!--@/table-->",
+  "",
+].join("\n");
+
+/** 建一个临时 .mc 并返回 { file, run }；run 捕获 stdout/stderr/退出码 */
+function withInline(run) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mc-part-"));
+  const file = path.join(tmp, "t.mc");
+  const cli = path.join(__dirname, "..", "dist", "cli.js");
+  fs.writeFileSync(file, INLINE_SRC, "utf8");
+  const before = fs.readFileSync(file, "utf8");
+  const call = (args) => {
+    const r = child_process.spawnSync(process.execPath, [cli, ...args], { encoding: "utf8" });
+    return { out: r.stdout.trim(), err: r.stderr.trim(), code: r.status, file: fs.readFileSync(file, "utf8") };
+  };
+  try {
+    run({ file, before, call });
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+test("parts：格内每个标记都记下可写区间（多标记 / 无名 / 单标记都有）", () => {
+  const res = parse(INLINE_SRC);
+  assert.equal(res.errors.length, 0);
+  const t = res.entries.find((e) => e.kind === "table");
+  const cells = t.positions.multi.cells;
+
+  // 多标记格：两个具名片段，序号连续
+  assert.deepEqual(cells.效果.parts.map((p) => [p.index, p.ident]), [[1, "range"], [2, "dmg"]]);
+  assert.deepEqual(cells.效果.parts.map((p) => p.value), [[150], [9, 15]]);
+  // 区间必须正好框住标记里的值文本
+  const src = INLINE_SRC;
+  for (const p of cells.效果.parts) {
+    const raw = src.slice(p.start, p.end);
+    assert.ok(!raw.includes("<!--@"), `片段区间不应包含标记本身：${raw}`);
+  }
+  assert.equal(src.slice(cells.效果.parts[1].start, cells.效果.parts[1].end), "9/15");
+
+  // 无名 @array：也有片段（此前它连 inner 都没有）
+  const anon = t.positions.anon.cells.效果;
+  assert.equal(anon.parts.length, 1);
+  assert.equal(anon.parts[0].ident, undefined);
+  assert.equal(anon.parts[0].index, 1);
+  // 无名片段给的是"它那个组"，不是整格数组
+  assert.deepEqual(anon.parts[0].value, [7, 8]);
+  assert.deepEqual(t.data.anon.效果, [[7, 8]]);
+
+  // 无标记的格：没有 parts
+  assert.equal(t.positions.plain.cells.效果.parts, undefined);
+});
+
+test("mc get 列#标记名 / #序号：读出片段自己的值", () => {
+  withInline(({ file, call }) => {
+    assert.equal(call(["get", file, "T.multi.效果#dmg"]).out, "[9,15]");
+    assert.equal(call(["get", file, "T.multi.效果#range"]).out, "[150]");
+    assert.equal(call(["get", file, "T.multi.效果#1"]).out, "[150]");
+    assert.equal(call(["get", file, "T.anon.效果#1"]).out, "[7,8]");
+    // 不带 # 时是整格
+    assert.equal(call(["get", file, "T.multi.效果"]).out, '{"range":[150],"dmg":[9,15]}');
+  });
+});
+
+test("mc set 列#标记名：只替换那一个片段，句子与同格其它标记一个字节都不动", () => {
+  withInline(({ file, before, call }) => {
+    const r = call(["set", file, "T.multi.效果#dmg", "20/30"]);
+    assert.equal(r.out, "T.multi.效果#dmg = 20/30");
+    assert.equal(r.code, 0);
+
+    // 后置条件：目标区间之外逐字节相同
+    const line = (s) => s.split("\n")[5];
+    const oldLine = line(before);
+    const newLine = line(r.file);
+    const i = oldLine.indexOf("9/15");
+    const j = newLine.indexOf("20/30");
+    assert.notEqual(i, -1);
+    assert.equal(oldLine.slice(0, i), newLine.slice(0, j), "片段之前的内容被改了");
+    assert.equal(oldLine.slice(i + 4), newLine.slice(j + 5), "片段之后的内容被改了");
+
+    // 读回：只有目标片段变了
+    assert.equal(call(["get", file, "T.multi.效果#dmg"]).out, "[20,30]");
+    assert.equal(call(["get", file, "T.multi.效果#range"]).out, "[150]");
+    assert.equal(call(["get", file, "T.multi.效果"]).out, '{"range":[150],"dmg":[20,30]}');
+  });
+});
+
+test("mc set 列#序号：无名 @array 格也能只改标记内容（此前只能整格替换）", () => {
+  withInline(({ file, call }) => {
+    const r = call(["set", file, "T.anon.效果#1", "70/90"]);
+    assert.equal(r.out, "T.anon.效果#1 = 70/90");
+    // "纯数值" 这个句子保住了
+    assert.match(r.file, /\| anon \| 纯数值 <!--@array-->70\/90<!--@\/array--> \|/);
+    // 值仍是"整格即数组体"的多包一层形态（与该写法原本的语义一致）
+    assert.equal(call(["get", file, "T.anon.效果"]).out, "[[70,90]]");
+  });
+});
+
+test("片段寻址的错误路径：列出可选片段 / 拒绝 id 列 / 普通格无标记", () => {
+  withInline(({ file, call }) => {
+    const miss = call(["set", file, "T.multi.效果#nope", "1"]);
+    assert.notEqual(miss.code, 0);
+    assert.match(miss.err, /没有标记 nope/);
+    assert.match(miss.err, /#1 range、#2 dmg/, "应列出可选片段");
+
+    const oob = call(["set", file, "T.multi.效果#9", "1"]);
+    assert.match(oob.err, /没有标记 9/);
+
+    const noMark = call(["set", file, "T.plain.效果#1", "5"]);
+    assert.match(noMark.err, /没有内联标记/);
+    assert.match(noMark.err, /整格替换/, "应提示去掉 # 就是整格替换");
+
+    const idCol = call(["set", file, "T.multi.id#1", "zz"]);
+    assert.match(idCol.err, /id 列不支持按标记改/);
+
+    // 值里仍然不许写标记（v0.6.0 起的安全守卫，不能因为新写法而破）
+    const inject = call(["set", file, "T.multi.效果#dmg", "x<!--@var q-->1<!--@/var-->"]);
+    assert.match(inject.err, /值里不能再写标记/);
+  });
+});
+
+test("列名本身含 # 时不被误当选择器（如 C#）", () => {
+  const src = [
+    "<!--@table T-->",
+    "| id | C# |",
+    "| --- | --- |",
+    "| a | 1 |",
+    "<!--@/table-->",
+    "",
+  ].join("\n");
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hash-"));
+  const file = path.join(tmp, "t.mc");
+  const cli = path.join(__dirname, "..", "dist", "cli.js");
+  fs.writeFileSync(file, src, "utf8");
+  const call = (args) =>
+    child_process.execFileSync(process.execPath, [cli, ...args], { encoding: "utf8" }).trim();
+  try {
+    assert.equal(call(["get", file, "T.a.C#"]), "1");
+    assert.equal(call(["set", file, "T.a.C#", "5"]), "T.a.C# = 5");
+    assert.equal(call(["get", file, "T.a.C#"]), "5");
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("整格替换含标记的格时给 stderr 提示（不改变既有行为，也不污染 stdout）", () => {
+  withInline(({ file, call }) => {
+    // 多标记格：整格替换 → 提示
+    const multi = call(["set", file, "T.multi.效果", "整格"]);
+    assert.equal(multi.out, "T.multi.效果 = 整格");
+    assert.match(multi.err, /含 2 个内联标记/);
+    assert.match(multi.err, /#1 range、#2 dmg/);
+    assert.match(multi.err, /#标记名/);
+
+    // 无名 array 格：整格替换 → 同样提示（这是此前最容易踩的坑）
+    const anon = call(["set", file, "T.anon.效果", "整格"]);
+    assert.match(anon.err, /含 1 个内联标记/);
+
+    // 单具名标记格：走 inner（句子本就保留）→ 不提示
+    const solo = INLINE_SRC.replace(
+      "| plain | 就是一句话 | |",
+      "| plain | 说明 <!--@var v-->2<!--@/var--> 尾巴 | |",
+    );
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mc-hint-"));
+    const f2 = path.join(tmp, "t.mc");
+    const cli = path.join(__dirname, "..", "dist", "cli.js");
+    fs.writeFileSync(f2, solo, "utf8");
+    const r = child_process.spawnSync(
+      process.execPath,
+      [cli, "set", f2, "T.plain.效果", "9"],
+      { encoding: "utf8" },
+    );
+    const after = fs.readFileSync(f2, "utf8");
+    fs.rmSync(tmp, { recursive: true, force: true });
+    assert.equal(r.stderr.trim(), "", "单标记格走 inner，不该提示");
+    assert.match(after, /说明 <!--@var v-->9<!--@\/var--> 尾巴/);
+  });
+});
+
+test("片段外的文本始终是边界：写进去的值含 / 也不会动到邻居", () => {
+  // 标记的开闭标签天然是边界，所以"写一个含 / 的值"不会与相邻文本合并成新元素。
+  // （CLI 里另有"其它片段值不能被改掉"的兜底校验，那是防御性的：标记标签被改动时才可能发生。）
+  const src = [
+    "<!--@table T-->",
+    "| id | 效果 |",
+    "| --- | --- |",
+    "| a | A/<!--@array k-->1<!--@/array-->/B |",
+    "<!--@/table-->",
+    "",
+  ].join("\n");
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mc-guard-"));
+  const file = path.join(tmp, "t.mc");
+  const cli = path.join(__dirname, "..", "dist", "cli.js");
+  fs.writeFileSync(file, src, "utf8");
+  try {
+    const r = child_process.spawnSync(
+      process.execPath,
+      [cli, "set", file, "T.a.效果#k", "2/3"],
+      { encoding: "utf8" },
+    );
+    assert.equal(r.status, 0, r.stderr);
+    const after = fs.readFileSync(file, "utf8");
+    assert.match(after, /A\/<!--@array k-->2\/3<!--@\/array-->\/B/);
+    // 值形状：单具名标记格读出**裸值**（`A/` 与 `/B` 是人读注释，不进配置）
+    const t = parse(after).entries.find((e) => e.kind === "table");
+    assert.deepEqual(t.data.a.效果, [2, 3]);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 });

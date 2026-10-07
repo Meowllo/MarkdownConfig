@@ -7,7 +7,7 @@
 * 文件后缀：`.mc`（与主流格式无冲突）
 * 语法规范：见 [SPEC.md](SPEC.md)（唯一权威）
 * 设计原则：**文本是真相（含评论），一切都在正文里**；**编译产物 = 标准 JSON**；**语法极小**
-* 版本与变更：**全项目统一版号** —— npm 包（SDK + CLI）/ Agent Skill / 规范同号，当前 `v0.7.0`；**留痕与版本控制交给 git**（`.mc` 不生成任何审计文件或日志目录）
+* 版本与变更：**全项目统一版号** —— npm 包（SDK + CLI）/ Agent Skill / 规范同号，当前 `v0.7.1`；**留痕与版本控制交给 git**（`.mc` 不生成任何审计文件或日志目录）
 * 只提供 **一个 npm 包**（`markdownconfig`）：SDK 与 `mc` CLI 由同一个包提供，装一次两者都有、版本天然一致
 
 ## 一行示例
@@ -77,7 +77,7 @@ MarkdownConfig/
 ### 1. Agent 技能（让 Agent 会读写 `.mc`）
 
 ```bash
-mkdir -p ~/.agents/skills/markdownconfig && curl -sSL https://github.com/Meowllo/MarkdownConfig/releases/download/v0.7.0/markdownconfig-skill.tar.gz | tar xz -C ~/.agents/skills/markdownconfig
+mkdir -p ~/.agents/skills/markdownconfig && curl -sSL https://github.com/Meowllo/MarkdownConfig/releases/download/v0.7.1/markdownconfig-skill.tar.gz | tar xz -C ~/.agents/skills/markdownconfig
 ```
 
 装到各主流 Agent 共用的技能目录 `~/.agents/skills/`。只有人用、不需要 Agent 时可以跳过这步。
@@ -144,6 +144,12 @@ mc add examples/app.mc debug.level 3      # 末尾新增变量
 mc comment examples/app.mc server.port "建议改回 8080"   # 追加评论到文末评论区
 mc comments examples/app.mc               # 列出评论（带序号）
 mc resolve examples/app.mc 1              # 删除（解决）第 1 条评论
+
+一格里有句子又有多个标记时，列名后加 `#` 可只改其中一个（句子与其它标记不动）：
+
+```
+mc get  examples/app.mc T.aura.效果#dmg       # 读某个标记的值
+mc set  examples/app.mc T.aura.效果#dmg 20/30  # 只改这个标记里的值
 ```
 
 ## JS / TS 读取（**下游读配置的推荐通路**）
@@ -220,4 +226,5 @@ node scripts/gen-golden.mjs         # 重建黄金语料（改解析逻辑后必
 * [x] v0.6.0：`McDoc` 稳定读取层 + `emitTsModule` 代码生成
 * [x] v0.7.0：**安装收敛为两步**（Skill + 一条 npm 命令）；SDK 与 CLI 合并为一个包的两种入口；Python 库停止维护、VS Code 扩展独立出去
 * [x] v0.7.0：**百分号**（`5%` → `0.05`）、**列名别名 `@col`**（导出 `maxRetries` / 显示「最大重试次数」）、修 #16（单元格内匿名 `@array` 不再静默丢数据、内部占位符不再泄漏）
+* [x] v0.7.1：**片段寻址** —— `mc get/set 表.id.列#标记名` 只改一格里的某一个内联标记，数值写在句子里也能精确改（#17）
 * [ ] Obsidian 插件（已暂缓，后续按需排期）
